@@ -466,15 +466,17 @@ fn phases(c: &Contest, from: usize, mut carry: Option<usize>, links: &[(String, 
             let size = sup.table_sets().first().and_then(|set| set.tables().iter().map(|t| t.size()).max()).map(|s| s as usize).filter(|s| *s > 1).or(n.map(|n| n.max(2).next_power_of_two()));
             let feminine = c.gender == 1 && !c.settings.team_event;
             if let Some(size) = size {
+                // Exemptés : qualifiés d'office pour le tableau suivant (pas jusqu'à la finale).
                 let exempted = n.map(|n| size.saturating_sub(n)).unwrap_or(0);
-                let mut line = format!("Tableau de {size}");
-                if exempted > 0 {
-                    line.push_str(&format!(", {exempted} exempté{}{}", if feminine { "e" } else { "" }, if exempted > 1 { "s" } else { "" }));
-                }
-                if s.base().nb_qualified.is_none() {
-                    line.push_str(" jusqu'à la finale");
-                }
-                lines.push(line);
+                let to_final = s.base().nb_qualified.is_none();
+                let e = if feminine { "e" } else { "" };
+                let pl = if exempted > 1 { "s" } else { "" };
+                lines.push(match (exempted > 0, to_final) {
+                    (true, true) => format!("Tableau de {size} avec {exempted} qualifié{e}{pl} d'office, puis tableau de {} jusqu'à la finale", size / 2),
+                    (true, false) => format!("Tableau de {size} avec {exempted} qualifié{e}{pl} d'office pour le tableau de {}", size / 2),
+                    (false, true) => format!("Tableau de {size} jusqu'à la finale"),
+                    (false, false) => format!("Tableau de {size}"),
+                });
             }
             if let Some(q) = s.base().nb_qualified {
                 lines.push(qualified(c, q as usize));
