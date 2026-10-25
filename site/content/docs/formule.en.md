@@ -41,6 +41,10 @@ Add the **Division pools** phase: it shares the fencers into divisions (D1 at th
 
 On the phase screen each fencer has a division (D1, D2… menu, or "Move the selection to"). For a new round, add another **Division pools** phase: the first X of each division go up, the last X go down (↑ ↓ arrows), and everything can still be changed by hand. In the general ranking, D1 comes first, then D2…
 
+## Lobby (series)
+
+For a race or a game (everybody plays at the same time, the order of arrival gives points), add the **Lobby (series)** stage: several lobbies in parallel, several races, adjustable points scale, qualified in total or per lobby ([Lobby (series)](@/docs/lobby.md)).
+
 ## Points and season ranking
 
 In the competition preferences, the **Points** tab awards points from the general ranking place: by default, out of N participants the 1st gets N points and the last 1 point. You can add place bonuses (1st: +X), bonuses for finishing in the top 4, 8…, a weight for the competition, and choose the formula: "Classement simple" (N − R + 1 + B) × C, the official M15 one, the official one, or your own, saved under a name. Variables, as in the federation rules: N (participants), R (rank), C (coefficient, the weight) and B (bonus); functions LOG, LN, ARRONDI.SUP… Points are shown in the general ranking.

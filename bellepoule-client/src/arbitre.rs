@@ -458,6 +458,14 @@ fn SheetScreen(who: Who, token: String) -> impl IntoView {
             {move || match data.get() {
                 None => view! { <p class="ref-muted">"Chargement…"</p> }.into_any(),
                 Some(Err(e)) => view! { <p class="ref-error">{e}</p> }.into_any(),
+                Some(Ok(sheet)) if s(&sheet, "kind") == "lobby" => {
+                    // Lobby (série) : saisie des places, manche par manche.
+                    let reload = Callback::new(move |_| {
+                        let (w, t) = (who.get_value(), token.get_value());
+                        spawn_local(async move { data.set(Some(fetch_sheet(&w, &t).await)) });
+                    });
+                    view! { <LobbySheet sheet=sheet.clone() who=who.get_value() token=token.get_value() reload=reload /> }.into_any()
+                }
                 Some(Ok(sheet)) => {
                     let pool = s(&sheet, "kind") == "pool";
                     let bouts = arr(&sheet, "bouts");
@@ -663,6 +671,71 @@ fn PoolGrid(sheet: Value, who: Who, token: String) -> impl IntoView {
                 </div>
             }
         })}
+    }
+}
+
+// ------------------------------------------------------------ lobby (série)
+
+/// Feuille d'un lobby : l'arbitre choisit la manche et tape la place de
+/// chaque tireur (même place pour des ex aequo, « A » pour un abandon).
+#[component]
+fn LobbySheet(sheet: Value, who: Who, token: String, reload: Callback<()>) -> impl IntoView {
+    let races = u(&sheet, "races").max(1) as usize;
+    let fencers = arr(&sheet, "fencers");
+    // Première manche pas encore complète.
+    let first_open = (0..races).find(|k| fencers.iter().any(|f| arr(f, "finishes").get(*k).is_none_or(Value::is_null))).unwrap_or(races - 1);
+    let race = RwSignal::new(first_open);
+    let message = RwSignal::new(None::<Result<&'static str, String>>);
+    let (who, token) = (StoredValue::new(who), StoredValue::new(token));
+    let locked = b(&sheet, "locked");
+    let send = move |player: u64, value: String| {
+        let body = json!({ "token": token.get_value(), "bout": race.get_untracked(), "values": [player.to_string(), value] });
+        spawn_local(async move {
+            let r = post_score(&who.get_value(), body).await;
+            message.set(Some(r));
+            reload.run(());
+        });
+    };
+    view! {
+        <h1 class="ref-title">{s(&sheet, "name")}</h1>
+        <div class="ref-muted ref-small">{s(&sheet, "competition")}</div>
+        {(!s(&sheet, "piste").is_empty()).then(|| view! { <div class="ref-place">{format!("Piste {}{}", s(&sheet, "piste"), if s(&sheet, "time").is_empty() { String::new() } else { format!(" · {}", s(&sheet, "time")) })}</div> })}
+        <div class="ref-races">
+            {(0..races).map(|k| view! {
+                <button class="ref-light" class:chosen=move || race.get() == k on:click=move |_| race.set(k)>{format!("Manche {}", k + 1)}</button>
+            }).collect_view()}
+        </div>
+        <p class="ref-muted ref-small">"Tapez la place de chaque tireur (la même pour des ex aequo, A pour un abandon)."</p>
+        {move || message.get().map(|m| match m {
+            Ok(text) => view! { <p class="ref-ok">{text}</p> }.into_any(),
+            Err(e) => view! { <p class="ref-error">{e}</p> }.into_any(),
+        })}
+        <div class="ref-grid-scroll">
+            <table class="ref-grid ref-lobby">
+                <thead><tr><th class="ref-gname">"Tireur"</th><th>"Place"</th><th>"Pts"</th><th>"Cl."</th></tr></thead>
+                <tbody>
+                    {fencers.into_iter().map(|f| {
+                        let player = u(&f, "reference");
+                        let finishes = arr(&f, "finishes");
+                        let raced = b(&f, "raced");
+                        let value = move || match finishes.get(race.get()) {
+                            Some(Value::Number(n)) => n.to_string(),
+                            Some(Value::String(x)) => x.clone(),
+                            _ => String::new(),
+                        };
+                        view! {
+                            <tr>
+                                <td class="ref-gname"><strong>{s(&f, "name")}</strong><br /><span class="ref-muted ref-small">{s(&f, "club")}</span></td>
+                                <td><input class="ref-place-input" type="text" inputmode="numeric" disabled=locked prop:value=value
+                                    on:change=move |ev| send(player, event_target_value(&ev)) /></td>
+                                <td>{u(&f, "points")}</td>
+                                <td><strong>{if raced { f.get("place").and_then(Value::as_u64).map(|p| p.to_string()).unwrap_or_default() } else { String::new() }}</strong></td>
+                            </tr>
+                        }
+                    }).collect_view()}
+                </tbody>
+            </table>
+        </div>
     }
 }
 

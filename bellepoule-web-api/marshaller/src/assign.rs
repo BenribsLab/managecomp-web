@@ -294,12 +294,14 @@ impl Hall {
         let heading = match root.tag_name().name() {
             "Poule" => "Pool",
             "Match" => "Match",
+            // Lobby (série) : placé comme une poule.
+            "Lobby" => "Lobby",
             _ => return None,
         };
         let key = self.next_job;
         self.next_job += 1;
         let mut job = Job::new(key, c, b, message, color);
-        job.is_pool = root.tag_name().name() == "Poule";
+        job.is_pool = matches!(root.tag_name().name(), "Poule" | "Lobby");
         job.name = match root.attribute("ID") {
             Some(id) => format!("{} {}", bp_core::i18n::tr(heading), id),
             None => bp_core::i18n::tr("Pool"),

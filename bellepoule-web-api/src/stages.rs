@@ -104,6 +104,7 @@ fn stage_view(c: &mut Contest, index: usize) -> Result<Value, ApiError> {
     let mut body = match code {
         "youth" => youth_view(c, index),
         "divisions" => divisions_view(c, index),
+        "lobby" => lobby_view(c, index),
         "pool_allocator" => allocator_view(c, index),
         "pool_supervisor" => pools_view(c, index),
         "table" => table_view(c, index),
@@ -972,6 +973,7 @@ pub async fn stage_action(
             match kind_code(kind) {
                 "youth" => youth_action(c, index, &body)?,
                 "divisions" => divisions_action(c, index, &body)?,
+                "lobby" => lobby_action(c, index, &body)?,
                 "pool_allocator" => allocator_action(c, index, &body)?,
                 "pool_supervisor" => pools_action(c, index, &body)?,
                 "table" => table_action(c, index, &body)?,
@@ -1136,4 +1138,124 @@ pub async fn match_sheets(State(store): State<Shared>, client: Client, Path((id,
         "date": c.date_image(),
         "sheets": sheets,
     })))
+}
+
+// ------------------------------------------------------------ lobby (série)
+
+fn standing_json(s: &bp_core::rounds::lobby::Standing) -> Value {
+    json!({ "points": s.points, "wins": s.wins, "best": s.best, "races": s.races, "abandons": s.abandons })
+}
+
+/// Lobby (série) : réglages, lobbys (arrivées de chaque manche), classements.
+fn lobby_view(c: &mut Contest, index: usize) -> Option<Value> {
+    use bp_core::rounds::lobby::{Lobby, ABANDON};
+    let l = c.schedule.stage(index)?.as_any().downcast_ref::<Lobby>()?;
+    let players = &c.players;
+    let races = l.settings.races.max(1) as usize;
+    let lobbies: Vec<Value> = (0..l.lobbies().len())
+        .map(|i| {
+            let ranking = l.lobby_ranking(i);
+            let road = l.roadmap(i).cloned().unwrap_or_default();
+            let referees: Vec<String> = road.referees.iter().filter_map(|r| c.referees.store().get(*r)).map(|p| format!("{} {}", p.name(), p.first_name()).trim().to_string()).collect();
+            json!({
+                "index": i,
+                "roadmap": ([Some(road.label()).filter(|s| !s.is_empty()), (!referees.is_empty()).then(|| format!("Arbitre : {}", referees.join(", ")))].into_iter().flatten().collect::<Vec<_>>().join(" · ")),
+                "done": l.races_done(i),
+                "over": l.lobby_over(i),
+                "rows": l.lobbies()[i].iter().map(|r| json!({
+                    "reference": r,
+                    "name": identity(players, *r),
+                    "club": club(players, *r),
+                    "finishes": (0..races).map(|k| match l.finish(i, k, *r) {
+                        Some(ABANDON) => json!("A"),
+                        Some(p) => json!(p),
+                        None => Value::Null,
+                    }).collect::<Vec<_>>(),
+                    "standing": standing_json(&l.standing(*r)),
+                    "place": ranking.iter().find(|(x, _, _)| x == r).map(|(_, p, _)| *p),
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    let members = l.members_race(players);
+    let ranking: Vec<Value> = l
+        .compute_classification(players)
+        .into_iter()
+        .map(|(r, place)| {
+            let s = if members { l.team_standing(players, r) } else { l.standing(r) };
+            json!({ "place": place, "name": identity(players, r), "club": club(players, r), "standing": standing_json(&s), "lobby": l.lobby_of(r).map(|x| x + 1) })
+        })
+        .collect();
+    let individual: Vec<Value> = if members {
+        l.individual_ranking(players)
+            .into_iter()
+            .map(|(r, place, s)| {
+                let team = l.team_of(players, r).map(|t| identity(players, t)).unwrap_or_default();
+                json!({ "place": place, "name": identity(players, r), "club": team, "standing": standing_json(&s), "lobby": l.lobby_of(r).map(|x| x + 1) })
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    Some(json!({
+        "settings": l.settings,
+        "nb_qualified": l.base().nb_qualified,
+        "locked": l.base().locked,
+        "team_event": c.settings.team_event,
+        "members_race": members,
+        "has_results": l.has_results(),
+        "lobbies": lobbies,
+        "ranking": ranking,
+        "individual": individual,
+    }))
+}
+
+/// Actions : `settings` (`settings`, `nb_qualified`), `finish` (`lobby`,
+/// `race`, `player`, `value` : place, « A » ou vide), `compose`.
+fn lobby_action(c: &mut Contest, index: usize, a: &Value) -> Result<(), ApiError> {
+    use bp_core::rounds::lobby::{Lobby, LobbySettings, ABANDON};
+    c.with_schedule(|s, ctx| {
+        let stage = s.stage_mut(index).ok_or_else(not_found)?;
+        if stage.base().locked {
+            return Err(bad_request("la phase est terminée : « Tour précédent » pour la modifier"));
+        }
+        let l = stage.as_any_mut().downcast_mut::<Lobby>().ok_or_else(not_found)?;
+        let n = |k: &str| a.get(k).and_then(Value::as_u64).unwrap_or(0);
+        match a.get("action").and_then(Value::as_str).unwrap_or("") {
+            "settings" => {
+                if let Some(v) = a.get("settings") {
+                    let settings: LobbySettings = serde_json::from_value(v.clone()).map_err(|e| bad_request(format!("réglages invalides : {e}")))?;
+                    l.set_settings(ctx, settings);
+                }
+                if let Some(q) = a.get("nb_qualified") {
+                    l.base_mut().nb_qualified = q.as_u64().filter(|v| *v > 0).map(|v| v as u32);
+                }
+            }
+            "finish" => {
+                let raw = a.get("value").map(|v| match v {
+                    Value::Number(n) => n.to_string(),
+                    Value::String(s) => s.clone(),
+                    _ => String::new(),
+                }).unwrap_or_default();
+                let t = raw.trim().to_uppercase();
+                let finish = if t.is_empty() {
+                    None
+                } else if t.starts_with('A') {
+                    Some(ABANDON)
+                } else {
+                    Some(t.parse::<i32>().ok().filter(|p| *p > 0).ok_or_else(|| bad_request("place : un nombre, ou A pour un abandon"))?)
+                };
+                l.set_finish(n("lobby") as usize, n("race") as usize, n("player") as PlayerRef, finish);
+            }
+            "compose" => {
+                if l.has_results() {
+                    return Err(bad_request("des arrivées sont déjà saisies"));
+                }
+                l.compose(ctx.players);
+            }
+            "move" => l.move_competitor(n("player") as PlayerRef, n("lobby") as usize),
+            other => return Err(bad_request(format!("action inconnue : {other}"))),
+        }
+        Ok(())
+    })
 }

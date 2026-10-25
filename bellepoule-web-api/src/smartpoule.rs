@@ -749,7 +749,9 @@ pub async fn phone_score(State(store): State<Shared>, Json(s): Json<PhoneScore>)
         .any(|job| job.get("token").and_then(Value::as_str) == Some(s.token.as_str()) && mine(&job, &Who::Referee(referee, String::new())));
     if !assigned { return Err(forbidden()); }
     let allowed = filter_bouts(raw, if referee == 0 { None } else { Some(referee) });
-    if !allowed.get("bouts").and_then(Value::as_array).is_some_and(|bouts| bouts.iter().any(|b| b.get("index").and_then(Value::as_u64) == Some(s.bout))) { return Err(forbidden()); }
+    // Lobby (série) : pas de matchs, la manche et le tireur sont dans la saisie.
+    let lobby = s.token.starts_with("l~");
+    if !lobby && !allowed.get("bouts").and_then(Value::as_array).is_some_and(|bouts| bouts.iter().any(|b| b.get("index").and_then(Value::as_u64) == Some(s.bout))) { return Err(forbidden()); }
     // Compétition de la version web : appliqué tout de suite.
     let web: Option<String> = store.list(&club).find(|(_, c)| c.smartpoule_sheet(&s.token, None).is_some()).map(|(id, _)| id.clone());
     if let Some(id) = web {

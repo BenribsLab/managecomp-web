@@ -117,3 +117,6 @@ table { border-collapse: collapse; }
 .division { border-left: 4px solid var(--accent); padding-left: 12px; margin: 10px 0 6px; }
 .division-head { margin: 8px 0 0; font-weight: 800; color: var(--accent); }
 .division hr:first-of-type { display: none; }
+
+/* Lobbys (série) : la grille garde des colonnes de manches étroites */
+.lobby .grid th:first-child { width: 42%; }

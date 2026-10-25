@@ -6,6 +6,7 @@ mod allocator;
 mod divisions;
 mod groups;
 mod lists;
+mod lobby;
 mod pools;
 mod sheets;
 mod splitting;
@@ -123,6 +124,7 @@ pub fn StageView(id: String, index: usize, kind: String, on_change: Callback<()>
             "barrage" => view! { <lists::Barrage ctx=ctx /> }.into_any(),
             "splitting" => view! { <splitting::Splitting ctx=ctx /> }.into_any(),
             "divisions" => view! { <divisions::Divisions ctx=ctx /> }.into_any(),
+            "lobby" => view! { <lobby::Lobby ctx=ctx /> }.into_any(),
             "classification" => view! { <lists::Classification ctx=ctx contest=contest.get_value() /> }.into_any(),
             _ => view! { <p class="muted">"Rien à afficher pour cette phase."</p> }.into_any(),
         }}
@@ -163,7 +165,7 @@ pub fn StageSettings(id: String, index: usize, kind: String, on_change: Callback
         });
     });
     let ctx = StageCtx { data, act, focus, path };
-    let has_timing = matches!(kind.as_str(), "pool_supervisor" | "table" | "barrage" | "youth" | "divisions");
+    let has_timing = matches!(kind.as_str(), "pool_supervisor" | "table" | "barrage" | "youth" | "divisions" | "lobby");
     view! {
         {has_timing.then(|| view! { <BoutTimingSettings ctx=ctx /> })}
         {move || ctx.data.get().map(|v| {
@@ -184,6 +186,7 @@ pub fn StageSettings(id: String, index: usize, kind: String, on_change: Callback
                 }.into_any(),
                 "youth" => view! { <youth::Settings ctx=ctx settings=d["settings"].clone() choices=arr(&d, "swapping_choices") locked=locked /> }.into_any(),
                 "divisions" => view! { <divisions::Settings ctx=ctx settings=d["settings"].clone() locked=locked /> }.into_any(),
+                "lobby" => view! { <lobby::LobbySettings ctx=ctx d=d.clone() locked=locked /> }.into_any(),
                 _ => view! { <p class="muted">"Pas de réglages pour cette phase."</p> }.into_any(),
             }
         })}

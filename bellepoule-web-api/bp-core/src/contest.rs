@@ -836,6 +836,7 @@ impl Contest {
                 timing: base.bout_timing,
                 pool: None,
                 fenced: None,
+                lobby: s.as_any().downcast_ref::<crate::rounds::lobby::Lobby>().map(|l| l.settings.clone()),
             };
             if let Some(p) = s.as_any().downcast_ref::<PoolSupervisorStage>() {
                 let round = p.round();
@@ -895,6 +896,8 @@ struct StageSpec {
     timing: crate::officiating::BoutTiming,
     pool: Option<PoolSpec>,
     fenced: Option<crate::rounds::table::supervisor::FencedPlaces>,
+    /// Lobby (série) : ses réglages (lobbys, manches, barème…).
+    lobby: Option<crate::rounds::lobby::LobbySettings>,
 }
 
 struct PoolSpec {
@@ -924,6 +927,9 @@ impl StageSpec {
             let reg: Vec<&str> = pool.criteria.iter().map(String::as_str).filter(|c| regular.contains(c)).collect();
             let extras: Vec<&str> = pool.criteria.iter().map(String::as_str).filter(|c| !regular.contains(c)).collect();
             round.set_swapping_criteria(players, &reg, &extras);
+        }
+        if let (Some(settings), Some(l)) = (&self.lobby, stage.as_any_mut().downcast_mut::<crate::rounds::lobby::Lobby>()) {
+            l.settings = settings.clone();
         }
         if let (Some(mode), Some(t)) = (self.fenced, stage.as_any_mut().downcast_mut::<crate::rounds::table::supervisor::TableSupervisor>()) {
             t.set_fenced_places(mode);

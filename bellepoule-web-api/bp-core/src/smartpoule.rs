@@ -5,7 +5,9 @@
 //!
 //! Un match à arbitrer est désigné par un jeton :
 //! - poule : `p~<compétition>~<tour>~<n° de poule>` ;
-//! - tableau : `t~<compétition>~<phase>~<suite>~<chemin du match>`.
+//! - tableau : `t~<compétition>~<phase>~<suite>~<chemin du match>` ;
+//! - lobby (série) : `l~<compétition>~<phase>~<n° du lobby>` (saisie : la
+//!   manche en `bout`, le tireur et sa place dans `values`).
 //!
 //! Un arbitre voit les poules et les matchs auxquels il est affecté (pour une
 //! poule sur plusieurs pistes : les matchs de sa piste) ; l'administrateur
@@ -172,6 +174,32 @@ impl Contest {
                         "fencers": pool.nb_players(),
                         "referees": pool.referees().iter().copied().chain(pool.match_assignments_with_clubs(&self.players, self.referees.store()).iter().filter_map(|m| m.referee)).collect::<Vec<_>>(),
                     }));
+                }
+            }
+            // Lobbys (série) de la phase en cours
+            if let Some(l) = stage.as_any().downcast_ref::<crate::rounds::lobby::Lobby>() {
+                if !stage.base().locked && i == current {
+                    for (k, members) in l.lobbies().iter().enumerate() {
+                        let road = l.roadmap(k).cloned().unwrap_or_default();
+                        if let Some(r) = referee {
+                            if !road.referees.contains(&r) {
+                                continue;
+                            }
+                        }
+                        out.push(json!({
+                            "token": lobby_token(self.net_id, stage.base().net_id, k),
+                            "kind": "lobby",
+                            "color": self.color,
+                            "competition": self.title(),
+                            "name": format!("Lobby {}", k + 1),
+                            "piste": road.pistes.iter().map(|p| format!("{p:02}")).collect::<Vec<_>>().join(", "),
+                            "time": road.time,
+                            "over": l.lobby_over(k),
+                            "fencers": members.len(),
+                            "summary": format!("{} manche{}", l.settings.races.max(1), if l.settings.races > 1 { "s" } else { "" }),
+                            "referees": road.referees,
+                        }));
+                    }
                 }
             }
             // Matchs de tableau prêts
@@ -349,6 +377,47 @@ impl Contest {
                 }
                 None
             }
+            "l" => {
+                let k: usize = parts.get(3)?.parse().ok()?;
+                let stage = self.schedule.stages().find(|s| s.base().net_id == stage_id)?;
+                let l = stage.as_any().downcast_ref::<crate::rounds::lobby::Lobby>()?;
+                let members = l.lobbies().get(k)?;
+                let races = l.settings.races.max(1) as usize;
+                let ranking = l.lobby_ranking(k);
+                let road = l.roadmap(k).cloned().unwrap_or_default();
+                let referee_name = |r: u32| self.referees.store().get(r).map(|p| format!("{} {}", p.name(), p.str_attr("first_name").unwrap_or_default()).trim().to_string()).unwrap_or_default();
+                Some(json!({
+                    "token": token,
+                    "kind": "lobby",
+                    "name": format!("Lobby {}", k + 1),
+                    "competition": self.title(),
+                    "color": self.color,
+                    "piste": road.pistes.iter().map(|p| format!("{p:02}")).collect::<Vec<_>>().join(", "),
+                    "time": road.time,
+                    "referees": road.referees.iter().map(|r| referee_name(*r)).collect::<Vec<_>>(),
+                    "races": races,
+                    "locked": stage.base().locked,
+                    "over": l.lobby_over(k),
+                    "fencers": members.iter().map(|r| {
+                        let (name, club) = identity(&self.players, *r);
+                        let s = l.standing(*r);
+                        json!({
+                            "reference": r,
+                            "name": name,
+                            "club": club,
+                            "finishes": (0..races).map(|race| match l.finish(k, race, *r) {
+                                Some(crate::rounds::lobby::ABANDON) => json!("A"),
+                                Some(p) => json!(p),
+                                None => Value::Null,
+                            }).collect::<Vec<_>>(),
+                            "points": s.points,
+                            "place": ranking.iter().find(|(x, _, _)| x == r).map(|(_, p, _)| *p),
+                            "raced": s.races > 0,
+                        })
+                    }).collect::<Vec<_>>(),
+                    "bouts": [],
+                }))
+            }
             _ => None,
         }
     }
@@ -417,9 +486,44 @@ impl Contest {
                 }
                 Err("tableau introuvable".into())
             }
+            // Lobby : `bout` = manche, `values` = [tireur, place (« A » : abandon, vide : effacée)].
+            Some("l") => {
+                let k: usize = parts.get(3).and_then(|s| s.parse().ok()).ok_or("jeton invalide")?;
+                let player: PlayerRef = values[0].trim().parse().map_err(|_| "tireur invalide")?;
+                let raw = values[1].trim().to_uppercase();
+                let finish = if raw.is_empty() {
+                    None
+                } else if raw.starts_with('A') {
+                    Some(crate::rounds::lobby::ABANDON)
+                } else {
+                    Some(raw.parse::<i32>().ok().filter(|p| *p > 0).ok_or("place invalide")?)
+                };
+                for i in 0..self.schedule.len() {
+                    let Some(stage) = self.schedule.stage_mut(i) else { continue };
+                    if stage.base().net_id != stage_id {
+                        continue;
+                    }
+                    if stage.base().locked {
+                        return Err("la phase est terminée".into());
+                    }
+                    let l = stage.as_any_mut().downcast_mut::<crate::rounds::lobby::Lobby>().ok_or("lobby introuvable")?;
+                    if !l.lobbies().get(k).is_some_and(|m| m.contains(&player)) {
+                        return Err("tireur hors du lobby".into());
+                    }
+                    l.set_finish(k, bout, player, finish);
+                    self.dirty = true;
+                    return Ok(());
+                }
+                Err("lobby introuvable".into())
+            }
             _ => Err("jeton invalide".into()),
         }
     }
+}
+
+/// Jeton d'un lobby (série) : feuille d'un lobby sur le téléphone de l'arbitre.
+pub fn lobby_token(contest: u32, stage: u32, lobby: usize) -> String {
+    format!("l~{contest}~{stage}~{lobby}")
 }
 
 

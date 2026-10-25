@@ -48,6 +48,7 @@ pub fn kind_code(kind: StageKind) -> &'static str {
         StageKind::GeneralClassification => "classification",
         StageKind::YouthTraining => "youth",
         StageKind::DivisionRound => "divisions",
+        StageKind::Lobby => "lobby",
     }
 }
 
@@ -181,6 +182,7 @@ pub async fn add_stage(State(store): State<Shared>, client: Client, Path(id): Pa
         "splitting" => StageKind::Splitting,
         "youth" => StageKind::YouthTraining,
         "divisions" => StageKind::DivisionRound,
+        "lobby" => StageKind::Lobby,
         other => return Err(bad_request(format!("phase inconnue : {other}"))),
     };
     let mut store = store.lock().await;

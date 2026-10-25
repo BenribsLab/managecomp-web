@@ -863,3 +863,17 @@ tr.clickable:hover { background: var(--surface-2); }
 tr.clickable.selected { background: var(--accent-soft); }
 .stage-settings { border: 1px solid var(--border); border-radius: 14px; padding: 0.6rem 0.9rem; margin: 0.6rem 0; background: var(--surface-2); }
 .stage-settings h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+
+/* Lobby (série) */
+.settings-panel { border: 1px solid var(--border); border-radius: 14px; padding: 0.4rem 0.9rem 0.7rem; margin-bottom: 0.8rem; background: var(--surface); }
+.settings-panel > summary { cursor: pointer; font-weight: 700; padding: 0.3rem 0; }
+.settings-panel .settings-grid label { display: grid; gap: 0.3rem; }
+.lobby-grid .place-input { width: 3.2rem; text-align: center; }
+.lobby-grid th.num, .lobby-grid td.num { text-align: center; }
+tr.qualified td:first-child { box-shadow: inset 4px 0 0 var(--success, #16a34a); }
+
+/* Téléphone : lobby (série) */
+.ref-races { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 4px; }
+.ref-lobby td, .ref-lobby th { height: 3em; }
+.ref-lobby .ref-gname { white-space: normal; line-height: 1.2; }
+.ref-place-input { width: 3.2em; font-size: 1.2rem; text-align: center; border: 2px solid #0866cd; border-radius: 10px; padding: 6px 0; }

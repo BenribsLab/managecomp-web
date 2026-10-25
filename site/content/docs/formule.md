@@ -40,6 +40,10 @@ Ajoutez la phase **Poules de division** : elle répartit les tireurs en division
 
 Sur l'écran de la phase, chaque tireur a sa division (menu D1, D2…, ou « Placer la sélection dans »). Pour un nouveau tour, ajoutez une autre phase **Poules de division** : les X premiers de chaque division y montent, les X derniers descendent (flèches ↑ ↓), et tout reste modifiable à la main. Au classement général, la D1 vient d'abord, puis la D2…
 
+## Lobby (série)
+
+Pour une course ou un jeu (tout le monde joue en même temps, l'ordre d'arrivée donne des points), ajoutez la phase **Lobby (série)** : plusieurs lobbys en parallèle, plusieurs manches, barème de points réglable, qualifiés au total ou par lobby ([Lobby (série)](@/docs/lobby.md)).
+
 ## Points et classement de saison
 
 Dans les préférences de la compétition, l'onglet **Points** attribue des points selon la place au classement général : par défaut, sur N participants, le 1er gagne N points et le dernier 1 point. On peut ajouter des bonus par place (le 1er : +X), des bonus pour finir dans les 4, dans les 8…, un poids de la compétition, et choisir la formule : « Classement simple » (N − R + 1 + B) × C, « Classement officiel M15 », « Classement officiel », ou la vôtre, à enregistrer sous un nom. Variables, comme dans le règlement de la fédération : N (participants), R (rang), C (coefficient, le poids) et B (bonus) ; fonctions LOG, LN, ARRONDI.SUP… Les points apparaissent dans le classement général.

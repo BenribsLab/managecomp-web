@@ -2350,3 +2350,93 @@ msgstr "Sa page publique et son QR code ne marcheront plus. Vous pourrez la publ
 
 msgid "Splitting"
 msgstr "Point de scission"
+
+msgid "Lobby (series)"
+msgstr "Lobby (série)"
+
+msgid "0: everybody"
+msgstr "0 : tout le monde"
+
+msgid "Best place"
+msgstr "Meilleure place"
+
+msgid "Everybody in a lobby races at the same time; each race gives points by place of arrival. Ties: same place, same points. Ranking: points, then wins, then best place."
+msgstr "Dans un lobby, tout le monde court en même temps ; chaque manche rapporte des points selon la place d'arrivée. Ex aequo : même place, mêmes points. Classement : points, puis victoires, puis meilleure place."
+
+msgid "Fencer"
+msgstr "Tireur"
+
+msgid "Individual ranking"
+msgstr "Classement individuel"
+
+msgid "Lobbies in parallel"
+msgstr "Lobbys en parallèle"
+
+msgid "Points for an abandon"
+msgstr "Points d'un abandon"
+
+msgid "Points for the 1st, 2nd, 3rd… separated by commas (e.g. 25, 18, 15, 12, 10)"
+msgstr "Points du 1er, du 2e, du 3e… séparés par des virgules (ex. 25, 18, 15, 12, 10)"
+
+msgid "Points per place"
+msgstr "Points par place"
+
+msgid "Qualified in total"
+msgstr "Qualifiés au total"
+
+msgid "Race"
+msgstr "Manche"
+
+msgid "Races"
+msgstr "Manches"
+
+msgid "Ranking of the phase"
+msgstr "Classement de la phase"
+
+msgid "Separate in the lobbies by"
+msgstr "Séparer dans les lobbys par"
+
+msgid "Team event"
+msgstr "Épreuve par équipes"
+
+msgid "Team ranking"
+msgstr "Classement des équipes"
+
+msgid "The lobbies are made when the phase starts."
+msgstr "Les lobbys sont composés au début de la phase."
+
+msgid "Type the place of each fencer in the race (the same place for ties, A for an abandon), then Enter."
+msgstr "Tapez la place de chaque tireur dans la manche (la même place pour des ex aequo, A pour un abandon), puis Entrée."
+
+msgid "Wins"
+msgstr "Victoires"
+
+msgid "each fencer of the team races"
+msgstr "chaque tireur de l'équipe court"
+
+msgid "empty: N points for the 1st, 1 for the last"
+msgstr "vide : N points au 1er, 1 au dernier"
+
+msgid "in total (merged ranking)"
+msgstr "au total (classement fusionné)"
+
+msgid "lobby(ies)"
+msgstr "lobby(s)"
+
+msgid "lobby(ies) over"
+msgstr "lobby(s) terminé(s)"
+
+msgid "per lobby"
+msgstr "par lobby"
+
+msgid "races:"
+msgstr "manches :"
+
+msgid "sum of its best fencers"
+msgstr "somme de ses meilleurs tireurs"
+
+msgid "sum of the points of its fencers"
+msgstr "somme des points de ses tireurs"
+
+msgid "the team races as one competitor"
+msgstr "l'équipe court comme un seul participant"

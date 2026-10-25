@@ -23,7 +23,7 @@ use crate::public::{public_base, PublicEvent, Publication};
 const CSS: &str = include_str!("compete/style.css");
 const JS: &str = include_str!("compete/app.js");
 /// Version des fichiers statiques (adresse changée à chaque modification).
-const ASSETS: &str = "3";
+const ASSETS: &str = "4";
 
 fn esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
@@ -311,6 +311,7 @@ fn event_body(base: &str, p: &Publication, event: Option<&PublicEvent>, links: &
         ("formule", "Formule", formula(c, links, divisions)),
         ("tireurs", "Tireurs", fencers(c, names)),
         ("poules", "Poules", pools(c, names)),
+        ("lobbys", "Lobbys", lobbies(c, names)),
         ("tableaux", "Tableaux", tables(c, names)),
         ("classement", "Classement", ranking(c, names)),
     ];
@@ -483,6 +484,47 @@ fn phases(c: &Contest, from: usize, mut carry: Option<usize>, links: &[(String, 
             }
             carry = s.base().nb_qualified.map(|q| q as usize).or(n);
             out.push_str(&block(state, &title, &lines));
+        } else if let Some(l) = s.as_any().downcast_ref::<bp_core::rounds::lobby::Lobby>() {
+            let n = entrants.or(carry);
+            if let Some(n) = n {
+                lines.push(people(c, n));
+            }
+            // Lobbys : nombre et tailles (« 4 lobbys de 8 »).
+            let sizes: Vec<usize> = if l.lobbies().is_empty() {
+                let k = l.settings.lobbies.max(1) as usize;
+                n.map(|n| (0..k).map(|i| n / k + usize::from(i < n % k)).collect()).unwrap_or_default()
+            } else {
+                l.lobbies().iter().map(Vec::len).collect()
+            };
+            if !sizes.is_empty() {
+                let mut groups: Vec<(usize, usize)> = Vec::new();
+                for size in &sizes {
+                    match groups.iter_mut().find(|(s, _)| s == size) {
+                        Some(g) => g.1 += 1,
+                        None => groups.push((*size, 1)),
+                    }
+                }
+                groups.sort_by(|a, b| b.0.cmp(&a.0));
+                let detail = groups.iter().map(|(size, k)| format!("{k} lobby{} de {size}", if *k > 1 { "s" } else { "" })).collect::<Vec<_>>().join(", ");
+                lines.push(if groups.len() > 1 { format!("{} lobbys ({detail})", sizes.len()) } else { detail });
+            }
+            let races = l.settings.races.max(1);
+            lines.push(format!("{races} manche{}", if races > 1 { "s" } else { "" }));
+            let q = match l.settings.per_lobby {
+                Some(k) => {
+                    lines.push(format!("{} par lobby", qualified(c, k as usize)));
+                    Some(k as usize * sizes.len().max(1))
+                }
+                None => {
+                    let q = s.base().nb_qualified.map(|q| q as usize).or(n);
+                    if let Some(q) = q {
+                        lines.push(qualified(c, q));
+                    }
+                    q
+                }
+            };
+            carry = q;
+            out.push_str(&block(state, &format!("{} {}", tr(s.kind().class_name()), s.name()).trim().to_string(), &lines));
         } else if let Some(split) = s.as_any().downcast_ref::<bp_core::rounds::splitting::Splitting>() {
             if let Some(n) = entrants.or(carry) {
                 lines.push(people(c, n));
@@ -753,6 +795,89 @@ fn table_lists(c: &Contest, names: &Names) -> String {
             if !set_html.is_empty() {
                 out.push_str(&format!("<h3>{}</h3>{set_html}", esc(&set.name())));
             }
+        }
+    }
+    out
+}
+
+/// Lobbys (série) : chaque lobby (places par manche, points, place), puis
+/// le classement de la phase. Un lobby se filtre comme une poule.
+fn lobbies(c: &Contest, names: &Names) -> String {
+    use bp_core::rounds::lobby::{Lobby, ABANDON};
+    let mut out = String::new();
+    let stages: Vec<usize> = (0..c.schedule.len()).filter(|i| c.schedule.stage(*i).is_some_and(|s| s.as_any().is::<Lobby>())).collect();
+    for i in &stages {
+        let Some(stage) = c.schedule.stage(*i) else { continue };
+        let Some(l) = stage.as_any().downcast_ref::<Lobby>() else { continue };
+        if l.lobbies().is_empty() {
+            continue;
+        }
+        let title = format!("{} {}", tr(stage.kind().class_name()), stage.name()).trim().to_string();
+        if stages.len() > 1 {
+            out.push_str(&format!("<h3>{}</h3>", esc(&title)));
+        }
+        let races = l.settings.races.max(1) as usize;
+        for k in 0..l.lobbies().len() {
+            let ranking = l.lobby_ranking(k);
+            let road = l.roadmap(k).cloned().unwrap_or_default();
+            let piste = road.pistes.iter().map(|p| format!("{p:02}")).collect::<Vec<_>>().join(", ");
+            let referees: Vec<String> = road.referees.iter().filter_map(|r| c.referees.store().get(*r)).map(|p| format!("{} {}", p.name(), p.first_name()).trim().to_string()).collect();
+            let info = [
+                (!piste.is_empty()).then(|| format!("Piste {piste}")),
+                (!road.time.is_empty()).then(|| road.time.clone()),
+                (!referees.is_empty()).then(|| format!("Arbitre : {}", referees.join(", "))),
+                Some(format!("{}/{races} manche{}", l.races_done(k), if races > 1 { "s" } else { "" })),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · ");
+            let head: String = (1..=races).map(|r| format!("<th>M{r}</th>")).collect();
+            let mut rows = String::new();
+            for (r, place, standing) in &ranking {
+                let (name, club) = names.get(&c.players, *r);
+                let cells: String = (0..races)
+                    .map(|race| match l.finish(k, race, *r) {
+                        Some(ABANDON) => "<td>A</td>".to_string(),
+                        Some(p) => format!("<td{}>{p}</td>", if p == 1 { " class=\"win\"" } else { "" }),
+                        None => "<td></td>".to_string(),
+                    })
+                    .collect();
+                rows.push_str(&format!(
+                    "<tr{}><td class=\"name\">{}<small>{}</small></td>{cells}<td class=\"res\"><b>{}</b></td><td class=\"res\"><b>{}</b></td></tr>",
+                    data(&name, &club),
+                    esc(&name),
+                    esc(&club),
+                    standing.points,
+                    if standing.races > 0 { place.to_string() } else { String::new() },
+                ));
+            }
+            out.push_str(&format!(
+                "<div class=\"pool lobby\" data-title=\"Lobby {n}\" data-piste=\"{p}\" data-time=\"{h}\"><h4>Lobby {n}{over}</h4><p class=\"muted\">{info}</p>\
+                 <div class=\"scroll\"><table class=\"grid\"><thead><tr><th></th>{head}<th>Pts</th><th>Pl</th></tr></thead><tbody>{rows}</tbody></table></div></div>",
+                n = k + 1,
+                p = esc(&piste),
+                h = esc(&road.time),
+                over = if l.lobby_over(k) { " <span class=\"ok\">✔</span>" } else { "" },
+                info = esc(&info),
+            ));
+        }
+        // Classement de la phase (lobbys fusionnés).
+        if l.has_results() {
+            let members = l.members_race(&c.players);
+            let mut rows = String::new();
+            for (r, place) in l.compute_classification(&c.players) {
+                let (name, club) = names.get(&c.players, r);
+                let s = if members { l.team_standing(&c.players, r) } else { l.standing(r) };
+                rows.push_str(&format!(
+                    "<tr{}><td class=\"rank\">{place}</td><td class=\"name\">{}</td><td class=\"muted\">{}</td><td class=\"res\">{}</td></tr>",
+                    data(&name, &club),
+                    esc(&name),
+                    esc(&club),
+                    s.points
+                ));
+            }
+            out.push_str(&format!("<h4>Classement — {}</h4><table class=\"list\"><thead><tr><th>Pl</th><th>Tireur</th><th>Club</th><th>Points</th></tr></thead><tbody>{rows}</tbody></table>", esc(&title)));
         }
     }
     out
