@@ -1197,8 +1197,16 @@ fn lobby_view(c: &mut Contest, index: usize) -> Option<Value> {
     } else {
         Vec::new()
     };
+    // Formules possibles (nombre de lobbys), comme la composition des poules.
+    let n = l.competitors(players).len();
+    let choices: Vec<Value> = bp_core::rounds::lobby::lobby_choices(n)
+        .into_iter()
+        .map(|k| json!({ "lobbies": k, "label": bp_core::rounds::lobby::choice_label(k, n) }))
+        .collect();
     Some(json!({
         "settings": l.settings,
+        "competitors": n,
+        "choices": choices,
         "nb_qualified": l.base().nb_qualified,
         "locked": l.base().locked,
         "team_event": c.settings.team_event,
@@ -1210,7 +1218,8 @@ fn lobby_view(c: &mut Contest, index: usize) -> Option<Value> {
     }))
 }
 
-/// Actions : `settings` (`settings`, `nb_qualified`), `finish` (`lobby`,
+/// Actions : `settings` (`settings`, `nb_qualified`), `composition`
+/// (`lobbies`, `distribution` : `balanced` ou `level`), `finish` (`lobby`,
 /// `race`, `player`, `value` : place, « A » ou vide), `compose`.
 fn lobby_action(c: &mut Contest, index: usize, a: &Value) -> Result<(), ApiError> {
     use bp_core::rounds::lobby::{Lobby, LobbySettings, ABANDON};
@@ -1246,6 +1255,16 @@ fn lobby_action(c: &mut Contest, index: usize, a: &Value) -> Result<(), ApiError
                     Some(t.parse::<i32>().ok().filter(|p| *p > 0).ok_or_else(|| bad_request("place : un nombre, ou A pour un abandon"))?)
                 };
                 l.set_finish(n("lobby") as usize, n("race") as usize, n("player") as PlayerRef, finish);
+            }
+            "composition" => {
+                if l.has_results() {
+                    return Err(bad_request("des arrivées sont déjà saisies"));
+                }
+                let distribution = match a.get("distribution").and_then(Value::as_str) {
+                    Some("level") => bp_core::rounds::lobby::Distribution::Level,
+                    _ => bp_core::rounds::lobby::Distribution::Balanced,
+                };
+                l.set_composition(ctx, (n("lobbies") as u32).max(1), distribution);
             }
             "compose" => {
                 if l.has_results() {

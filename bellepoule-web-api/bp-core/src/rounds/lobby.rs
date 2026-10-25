@@ -2,8 +2,10 @@
 //! royale…) où tous les participants d'un lobby jouent en même temps et
 //! arrivent dans un ordre, sans matchs.
 //!
-//! - Plusieurs lobbys en parallèle, composés en serpentin d'après le
-//!   classement d'entrée (décalage possible : club…).
+//! - Plusieurs lobbys en parallèle : comme les poules, la formule (nombre
+//!   de lobbys) se choisit sur l'écran de la phase d'après le nombre de
+//!   participants ; répartition équilibrée (serpentin, décalage possible :
+//!   club…) ou par force équivalente (les meilleurs ensemble).
 //! - Plusieurs manches : à chaque manche, l'ordre d'arrivée du lobby donne
 //!   des points (barème réglable : N → 1, ou liste saisie). Ex aequo permis
 //!   (même place, mêmes points ; la place suivante est décalée), abandon.
@@ -26,6 +28,39 @@ use crate::xml::XmlWriter;
 
 /// Abandon dans une manche (au lieu d'une place).
 pub const ABANDON: i32 = -1;
+
+/// Répartition dans les lobbys.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Distribution {
+    /// Équilibrée : serpentin d'après le classement d'entrée.
+    #[default]
+    Balanced,
+    /// Par force équivalente : les premiers ensemble dans le lobby 1, etc.
+    Level,
+}
+
+/// Formules possibles pour `n` participants : nombres de lobbys (au moins
+/// deux participants par lobby, un seul lobby toujours possible).
+pub fn lobby_choices(n: usize) -> Vec<u32> {
+    let mut out = vec![1];
+    for k in 2..=(n / 2) {
+        out.push(k as u32);
+    }
+    out
+}
+
+/// « 4 lobbys de 8 », « 5 lobbys de 6 ou 7 ».
+pub fn choice_label(lobbies: u32, n: usize) -> String {
+    let k = lobbies.max(1) as usize;
+    let small = n / k;
+    let plural = if k > 1 { "s" } else { "" };
+    if n % k == 0 {
+        format!("{k} lobby{plural} de {small}")
+    } else {
+        format!("{k} lobby{plural} de {small} ou {}", small + 1)
+    }
+}
 
 /// Épreuve par équipes : qui court.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,8 +87,12 @@ pub enum TeamRule {
 /// Réglages (préférences de la phase).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LobbySettings {
-    /// Nombre de lobbys en parallèle.
+    /// Nombre de lobbys en parallèle (choisi sur l'écran de la phase, comme
+    /// la formule des poules).
     pub lobbies: u32,
+    /// Répartition : équilibrée (serpentin) ou par force équivalente.
+    #[serde(default)]
+    pub distribution: Distribution,
     /// Nombre de manches.
     pub races: u32,
     /// Points par place (1re, 2e…) ; vide : N points au 1er, 1 au dernier.
@@ -85,6 +124,7 @@ impl Default for LobbySettings {
     fn default() -> Self {
         LobbySettings {
             lobbies: 1,
+            distribution: Distribution::Balanced,
             races: 1,
             scale: Vec::new(),
             abandon_points: 0,
@@ -282,12 +322,30 @@ impl Lobby {
         settings.lobbies = settings.lobbies.clamp(1, 64);
         settings.races = settings.races.clamp(1, 50);
         settings.team_best = settings.team_best.max(1);
-        let recompose = settings.lobbies != self.settings.lobbies || settings.swapping != self.settings.swapping || settings.team_mode != self.settings.team_mode;
+        let recompose = settings.lobbies != self.settings.lobbies
+            || settings.distribution != self.settings.distribution
+            || settings.swapping != self.settings.swapping
+            || settings.team_mode != self.settings.team_mode;
         self.settings = settings;
         if recompose && !self.has_results() && !self.base.attendees.is_empty() {
             self.compose(ctx.players);
         }
         self.fit_results();
+    }
+
+    /// Formule (nombre de lobbys) et répartition, choisies sur l'écran de la
+    /// phase tant qu'aucune arrivée n'est saisie.
+    pub fn set_composition(&mut self, ctx: &mut StageContext, lobbies: u32, distribution: Distribution) {
+        if self.base.locked || self.has_results() {
+            return;
+        }
+        let mut settings = self.settings.clone();
+        settings.lobbies = lobbies.max(1);
+        settings.distribution = distribution;
+        self.settings = settings;
+        if !self.base.attendees.is_empty() {
+            self.compose(ctx.players);
+        }
     }
 
     pub fn has_results(&self) -> bool {
@@ -309,6 +367,21 @@ impl Lobby {
         let competitors = self.competitors(players);
         let n = (self.settings.lobbies.max(1) as usize).min(competitors.len().max(1));
         let mut lobbies: Vec<Vec<PlayerRef>> = vec![Vec::new(); n];
+        if self.settings.distribution == Distribution::Level {
+            // Par force équivalente : les premiers dans le lobby 1, les suivants dans le 2…
+            let total = competitors.len();
+            let mut at = 0;
+            for (l, lobby) in lobbies.iter_mut().enumerate() {
+                let size = total / n + usize::from(l < total % n);
+                lobby.extend_from_slice(&competitors[at..at + size]);
+                at += size;
+            }
+            self.lobbies = lobbies;
+            self.results.clear();
+            self.roadmaps.clear();
+            self.fit_results();
+            return;
+        }
         for (i, r) in competitors.iter().enumerate() {
             let row = i / n;
             let col = if row % 2 == 0 { i % n } else { n - 1 - i % n };
@@ -797,6 +870,16 @@ mod tests {
         assert_eq!(order, vec![refs[2], refs[3], refs[1], refs[0]]);
         let places: Vec<u32> = ranking.iter().map(|(_, p, _)| *p).collect();
         assert_eq!(places, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn level_distribution_keeps_the_best_together() {
+        let (mut players, refs) = store(7);
+        let l = lobby(&mut players, &refs, LobbySettings { lobbies: 2, distribution: Distribution::Level, swapping: Vec::new(), ..Default::default() });
+        assert_eq!(l.lobbies()[0], refs[..4].to_vec());
+        assert_eq!(l.lobbies()[1], refs[4..].to_vec());
+        assert_eq!(lobby_choices(7), vec![1, 2, 3]);
+        assert_eq!(choice_label(2, 7), "2 lobbys de 3 ou 4");
     }
 
     #[test]

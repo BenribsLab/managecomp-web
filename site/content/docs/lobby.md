@@ -14,7 +14,6 @@ Cliquez sur la phase dans la formule pour la régler, même avant qu'elle commen
 
 | Réglage | À quoi il sert |
 |---|---|
-| Lobbys en parallèle | 1 lobby avec tout le monde, ou plusieurs (32 tireurs → 4 lobbys de 8) |
 | Manches | nombre de courses de chaque lobby |
 | Points par place | vide : N points au 1er, 1 au dernier ; ou une liste (25, 18, 15, 12, 10…) |
 | Points d'un abandon | 0 par défaut |
@@ -22,7 +21,14 @@ Cliquez sur la phase dans la formule pour la régler, même avant qu'elle commen
 | Séparer dans les lobbys par | club, ligue, pays : deux tireurs du même club vont dans des lobbys différents quand c'est possible |
 | Chronomètre | durée d'une manche : l'organisation en déduit la durée d'un lobby |
 
-Les lobbys sont composés à l'entrée dans la phase, en serpentin d'après le classement d'entrée, comme les poules. Tant qu'aucune arrivée n'est saisie, changer le nombre de lobbys ou le décalage refait la répartition (version en ligne : bouton **Recomposer les lobbys**).
+## Composition des lobbys
+
+Comme pour les poules, la composition se fait sur l'écran de la phase, d'après le nombre de participants :
+
+- **Formule** : les formules possibles (« 1 lobby de 32 », « 4 lobbys de 8 », « 5 lobbys de 6 ou 7 »…) ;
+- **Répartition** : **équilibrée (serpentin)** d'après le classement d'entrée, avec le décalage par club, ou **par force équivalente** (les meilleurs ensemble dans le lobby 1, les suivants dans le lobby 2…).
+
+La composition reste modifiable tant qu'aucune arrivée n'est saisie.
 
 ## Saisie des arrivées
 

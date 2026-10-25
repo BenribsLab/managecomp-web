@@ -15,7 +15,6 @@ Click the stage in the formula to set it up, even before it starts.
 
 | Setting | Purpose |
 |---|---|
-| Lobbies in parallel | 1 lobby with everybody, or several (32 fencers → 4 lobbies of 8) |
 | Races | number of races of each lobby |
 | Points per place | empty: N points for the 1st, 1 for the last; or a list (25, 18, 15, 12, 10…) |
 | Points for an abandon | 0 by default |
@@ -23,7 +22,14 @@ Click the stage in the formula to set it up, even before it starts.
 | Separate in the lobbies by | club, league, country: two fencers of the same club go into different lobbies when possible |
 | Timer | duration of a race: the organisation deduces the duration of a lobby |
 
-Lobbies are made when the stage starts, in a serpentine from the entry ranking, like pools. As long as no arrival is entered, changing the number of lobbies or the separation redoes the distribution (online version: **Recomposer les lobbys** button).
+## Making the lobbies
+
+Like pools, the lobbies are made on the stage screen, from the number of competitors:
+
+- **Formula**: the possible formulas ("1 lobby of 32", "4 lobbies of 8", "5 lobbies of 6 or 7"…);
+- **Distribution**: **balanced (serpentine)** from the entry ranking, with the club separation, or **by equivalent strength** (the best together in lobby 1, the next ones in lobby 2…).
+
+The composition can be changed as long as no arrival is entered.
 
 ## Entering arrivals
 

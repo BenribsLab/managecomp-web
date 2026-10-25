@@ -27,6 +27,7 @@ pub fn Lobby(ctx: StageCtx) -> impl IntoView {
             let quota = if per_lobby.is_some() { 0 } else { u(&d, "nb_qualified") };
             view! {
                 <LobbySettings ctx=ctx d=d.clone() locked=locked />
+                <Composition ctx=ctx d=d.clone() locked=locked />
                 <div class="stage-bar">
                     {lobbies.iter().map(|l| {
                         let i = u(l, "index") as usize;
@@ -50,6 +51,42 @@ pub fn Lobby(ctx: StageCtx) -> impl IntoView {
                 }}
             }
         })}
+    }
+}
+
+/// Formule (nombre de lobbys, d'après le nombre de participants) et
+/// répartition, comme la composition des poules.
+#[component]
+fn Composition(ctx: StageCtx, d: Value, locked: bool) -> impl IntoView {
+    let current = d["settings"].get("lobbies").and_then(Value::as_u64).unwrap_or(1);
+    let distribution = d["settings"].get("distribution").and_then(Value::as_str).unwrap_or("balanced").to_string();
+    let fixed = locked || b(&d, "has_results");
+    let dist = StoredValue::new(distribution.clone());
+    let lobbies = RwSignal::new(current);
+    view! {
+        <div class="stage-bar">
+            <label class="inline">
+                "Formule "
+                <select disabled=fixed on:change=move |ev| {
+                    let k = event_target_value(&ev).parse::<u64>().unwrap_or(1);
+                    lobbies.set(k);
+                    ctx.act.run(json!({ "action": "composition", "lobbies": k, "distribution": dist.get_value() }));
+                }>
+                    {arr(&d, "choices").into_iter().map(|c| {
+                        let k = u(&c, "lobbies");
+                        view! { <option value=k.to_string() selected=k == current>{s(&c, "label")}</option> }
+                    }).collect_view()}
+                </select>
+            </label>
+            <label class="inline" title="Équilibrée : serpentin d'après le classement d'entrée, comme les poules. Par force équivalente : les meilleurs ensemble dans le lobby 1, les suivants dans le lobby 2…">
+                "Répartition "
+                <select disabled=fixed on:change=move |ev| ctx.act.run(json!({ "action": "composition", "lobbies": lobbies.get_untracked(), "distribution": event_target_value(&ev) }))>
+                    <option value="balanced" selected=distribution == "balanced">"équilibrée (serpentin)"</option>
+                    <option value="level" selected=distribution == "level">"par force équivalente"</option>
+                </select>
+            </label>
+            {fixed.then(|| view! { <span class="muted small">"Arrivées saisies : la composition est figée."</span> })}
+        </div>
     }
 }
 
@@ -133,7 +170,8 @@ fn RankingTable(title: String, list: Vec<Value>, quota: u64) -> impl IntoView {
 pub(crate) fn LobbySettings(ctx: StageCtx, d: Value, locked: bool) -> impl IntoView {
     let st = d["settings"].clone();
     let num = |k: &str, default: u64| st.get(k).and_then(Value::as_u64).unwrap_or(default).to_string();
-    let lobbies = RwSignal::new(num("lobbies", 1));
+    let lobbies = num("lobbies", 1);
+    let distribution = st.get("distribution").and_then(Value::as_str).unwrap_or("balanced").to_string();
     let races = RwSignal::new(num("races", 1));
     let scale = RwSignal::new(st.get("scale").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_u64).map(|v| v.to_string()).collect::<Vec<_>>().join(", ")).unwrap_or_default());
     let abandon = RwSignal::new(num("abandon_points", 0));
@@ -149,7 +187,8 @@ pub(crate) fn LobbySettings(ctx: StageCtx, d: Value, locked: bool) -> impl IntoV
     let save = move |_| {
         let parse = |v: String, d: u64| v.trim().parse::<u64>().unwrap_or(d);
         let settings = json!({
-            "lobbies": parse(lobbies.get(), 1).max(1),
+            "lobbies": parse(lobbies.clone(), 1).max(1),
+            "distribution": distribution.clone(),
             "races": parse(races.get(), 1).max(1),
             "scale": scale.get().split([',', ';', ' ']).filter_map(|v| v.trim().parse::<u64>().ok()).collect::<Vec<_>>(),
             "abandon_points": parse(abandon.get(), 0),
@@ -173,7 +212,6 @@ pub(crate) fn LobbySettings(ctx: StageCtx, d: Value, locked: bool) -> impl IntoV
         <details class="settings-panel" open=true>
             <summary>"Réglages du lobby"</summary>
             <div class="settings-grid">
-                <label>"Lobbys en parallèle"<input type="number" min="1" max="64" disabled={locked || has_results} prop:value=move || lobbies.get() on:input=move |ev| lobbies.set(event_target_value(&ev)) /></label>
                 <label>"Manches"<input type="number" min="1" max="50" disabled=locked prop:value=move || races.get() on:input=move |ev| races.set(event_target_value(&ev)) /></label>
                 <label title="Points du 1er, du 2e, du 3e… séparés par des virgules (ex. 25, 18, 15, 12, 10). Vide : N points au 1er, 1 au dernier.">
                     "Points par place"

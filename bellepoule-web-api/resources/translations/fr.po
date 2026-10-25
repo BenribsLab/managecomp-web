@@ -2440,3 +2440,12 @@ msgstr "somme des points de ses tireurs"
 
 msgid "the team races as one competitor"
 msgstr "l'équipe court comme un seul participant"
+
+msgid "balanced (serpentine)"
+msgstr "équilibrée (serpentin)"
+
+msgid "by equivalent strength"
+msgstr "par force équivalente"
+
+msgid "Balanced: serpentine from the entry ranking, like pools. By equivalent strength: the best together in lobby 1, the next ones in lobby 2…"
+msgstr "Équilibrée : serpentin d'après le classement d'entrée, comme les poules. Par force équivalente : les meilleurs ensemble dans le lobby 1, les suivants dans le lobby 2…"
