@@ -789,6 +789,104 @@ impl Stage for Lobby {
         self.base.locked = false;
     }
 
+    /// Export HTML (résultats complets) : un tableau par lobby (places de
+    /// chaque manche, points, victoires, place), puis le classement de la
+    /// phase. Mêmes styles que les poules.
+    fn dump_to_html(&self, ctx: &StageContext, html: &mut String) {
+        let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+        let players = &*ctx.players;
+        let name_of = |r: PlayerRef| {
+            players
+                .get(r)
+                .map(|p| (format!("{} {}", p.name(), p.first_name()).trim().to_string(), p.str_attr("club").unwrap_or_default().to_string()))
+                .unwrap_or_default()
+        };
+        let races = self.settings.races.max(1) as usize;
+        html.push_str("        <div>
+          <table>
+");
+        for k in 0..self.lobbies.len() {
+            let road = self.roadmap(k).map(|r| r.label()).filter(|l| !l.is_empty()).map(|l| format!(" — {l}")).unwrap_or_default();
+            html.push_str("          <tr class=\"PoolName\">
+");
+            html.push_str(&format!("            <td>Lobby {}{}</td>
+            <td class=\"GridSeparator\"></td>
+", k + 1, esc(&road)));
+            for r in 1..=races {
+                html.push_str(&format!("            <td class=\"GridSeparator\" style=\"text-align: center\";>M{r}</td>
+"));
+            }
+            for h in [crate::i18n::tr("Points"), crate::i18n::tr("Wins"), "#".to_string()] {
+                html.push_str(&format!("            <td class=\"GridSeparator\" style=\"text-align: center\";>{}</td>
+", esc(&h)));
+            }
+            html.push_str("          </tr>
+");
+            for (r, place, s) in self.lobby_ranking(k) {
+                let (name, club) = name_of(r);
+                html.push_str("          <tr class=\"EvenRow\">
+");
+                html.push_str(&format!("            <td>
+              <span class=\"name\">{} </span><span class=\"club\">{}</span>            </td>
+", esc(&name), esc(&club)));
+                html.push_str("            <td class=\"GridSeparator\"></td>
+");
+                for race in 0..races {
+                    let cell = match self.finish(k, race, r) {
+                        Some(ABANDON) => "A".to_string(),
+                        Some(p) => p.to_string(),
+                        None => String::new(),
+                    };
+                    html.push_str(&format!("            <td class=\"PoolCell\">{cell}</td>
+"));
+                }
+                html.push_str(&format!("            <td class=\"DashBoardCell\">{}</td>
+", s.points));
+                html.push_str(&format!("            <td class=\"DashBoardCell\">{}</td>
+", s.wins));
+                html.push_str(&format!("            <td class=\"DashBoardCell\">{}</td>
+", if s.races > 0 { place.to_string() } else { String::new() }));
+                html.push_str("          </tr>
+");
+            }
+            html.push_str("          <tr class=\"PoolSeparator\">
+");
+        }
+        html.push_str("          </table>
+
+        </div>
+");
+        // Classement de la phase (lobbys fusionnés).
+        if self.has_results() {
+            let members = self.members_race(players);
+            html.push_str(&format!("        <h3>{}</h3>
+        <div>
+          <table>
+", esc(&crate::i18n::tr("Ranking of the phase"))));
+            html.push_str(&format!(
+                "          <tr class=\"PoolName\"><td class=\"GridSeparator\">#</td><td class=\"GridSeparator\">{}</td><td class=\"GridSeparator\">{}</td><td class=\"GridSeparator\">{}</td></tr>
+",
+                esc(&crate::i18n::tr("Name")),
+                esc(&crate::i18n::tr("Club")),
+                esc(&crate::i18n::tr("Points"))
+            ));
+            for (r, place) in self.compute_classification(players) {
+                let (name, club) = name_of(r);
+                let s = if members { self.team_standing(players, r) } else { self.standing(r) };
+                html.push_str(&format!(
+                    "          <tr class=\"EvenRow\"><td class=\"DashBoardCell\">{place}</td><td><span class=\"name\">{}</span></td><td><span class=\"club\">{}</span></td><td class=\"DashBoardCell\">{}</td></tr>
+",
+                    esc(&name),
+                    esc(&club),
+                    s.points
+                ));
+            }
+            html.push_str("          </table>
+        </div>
+");
+        }
+    }
+
     fn remap_players(&mut self, map: &std::collections::HashMap<PlayerRef, PlayerRef>) {
         let tr = |r: &PlayerRef| map.get(r).copied().unwrap_or(*r);
         self.base.attendees = self.base.attendees.iter().map(tr).collect();
