@@ -15,7 +15,7 @@ js-sys = "0.3"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Window", "Location", "Storage", "File", "FileList", "Blob", "HtmlInputElement", "HtmlElement", "Document", "Element", "Url", "DataTransfer", "DragEvent", "KeyboardEvent", "DomTokenList", "PointerEvent", "MouseEvent", "Node", "NodeList", "Clipboard", "History", "Navigator", "Performance", "AudioContext", "BaseAudioContext", "AudioNode", "AudioDestinationNode", "AudioScheduledSourceNode", "OscillatorNode", "AudioParam", "GainNode"] }
+web-sys = { version = "0.3", features = ["Window", "Location", "Storage", "File", "FileList", "Blob", "HtmlInputElement", "HtmlElement", "HtmlIFrameElement", "Document", "Element", "Url", "DataTransfer", "DragEvent", "KeyboardEvent", "DomTokenList", "PointerEvent", "MouseEvent", "Node", "NodeList", "Clipboard", "History", "Navigator", "Performance", "AudioContext", "BaseAudioContext", "AudioNode", "AudioDestinationNode", "AudioScheduledSourceNode", "OscillatorNode", "AudioParam", "GainNode"] }
 
 [profile.release]
 opt-level = "z"

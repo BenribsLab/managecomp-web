@@ -119,6 +119,15 @@ pub async fn upload<T: DeserializeOwned>(path: &str, bytes: Vec<u8>) -> Result<T
     read(resp).await
 }
 
+/// Lecture authentifiée d'un texte (page HTML d'un export…).
+pub async fn text(path: &str) -> Result<String, ApiError> {
+    let resp = with_key(Request::get(path)).send().await.map_err(err)?;
+    if !resp.ok() {
+        return read::<serde_json::Value>(resp).await.map(|_| String::new());
+    }
+    resp.text().await.map_err(err)
+}
+
 /// Téléchargement authentifié : le fichier est ouvert depuis un objet Blob.
 pub async fn download(path: &str, file_name: &str) -> Result<(), ApiError> {
     let resp = with_key(Request::get(path)).send().await.map_err(err)?;

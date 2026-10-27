@@ -981,6 +981,51 @@ impl Stage for CheckinStage {
 
     fn dump_to_html(&self, ctx: &StageContext, html: &mut String) {
         crate::contest::html::players_table(html, ctx.players, &self.list, &self.filter, self.owner());
+        // Épreuve par équipes : l'équipe de chaque tireur.
+        let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+        let teams: Vec<&crate::player::Player> = self.list.iter().filter_map(|r| ctx.players.get(*r)).filter(|p| p.class == PlayerClass::Team && !p.members.is_empty()).collect();
+        if !teams.is_empty() {
+            html.push_str(&format!("        <h3>{}</h3>
+        <table class=\"List\">
+", esc(&crate::i18n::tr("Fencers and teams"))));
+            html.push_str(&format!(
+                "          <tr class=\"ListHeader\">
+            <th>{}</th>
+            <th>{}</th>
+            <th>{}</th>
+            <th>{}</th>
+          </tr>
+",
+                esc(&crate::i18n::tr("Team")),
+                esc(&crate::i18n::tr("Name")),
+                esc(&crate::i18n::tr("First name")),
+                esc(&crate::i18n::tr("Club"))
+            ));
+            let mut row = 0;
+            for team in teams {
+                for m in &team.members {
+                    let Some(p) = ctx.players.get(*m) else { continue };
+                    html.push_str(if row % 2 == 1 { "          <tr class=\"OddRow\">
+" } else { "          <tr class=\"EvenRow\">
+" });
+                    html.push_str(&format!(
+                        "            <td>{}</td>
+            <td>{}</td>
+            <td>{}</td>
+            <td>{}</td>
+          </tr>
+",
+                        esc(&team.name()),
+                        esc(&p.name()),
+                        esc(&p.first_name()),
+                        esc(p.str_attr("club").unwrap_or_default())
+                    ));
+                    row += 1;
+                }
+            }
+            html.push_str("        </table>
+");
+        }
     }
 
     fn as_any(&self) -> &dyn Any {

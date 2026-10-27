@@ -205,6 +205,33 @@ pub fn PrintButton() -> impl IntoView {
     }
 }
 
+/// Impression d'une page HTML complète (export des résultats) dans un cadre
+/// caché, avec sa propre mise en page.
+pub fn print_html(html: &str) {
+    use wasm_bindgen::JsCast;
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
+    let Some(frame) = document.create_element("iframe").ok().and_then(|e| e.dyn_into::<web_sys::HtmlIFrameElement>().ok()) else { return };
+    let _ = frame.set_attribute("style", "position:fixed;right:0;bottom:0;width:0;height:0;border:0");
+    frame.set_srcdoc(html);
+    let target = frame.clone();
+    let onload = wasm_bindgen::closure::Closure::once_into_js(move || {
+        if let Some(w) = target.content_window() {
+            let _ = w.focus();
+            let _ = w.print();
+        }
+        // Retiré après l'impression (la boîte d'impression est bloquante).
+        let cleanup = target.clone();
+        let later = wasm_bindgen::closure::Closure::once_into_js(move || cleanup.remove());
+        if let Some(w) = web_sys::window() {
+            let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(later.unchecked_ref(), 60_000);
+        }
+    });
+    frame.set_onload(Some(onload.unchecked_ref()));
+    if let Some(body) = document.body() {
+        let _ = body.append_child(&frame);
+    }
+}
+
 /// Liste générique renvoyée par l'API (`columns`, `rows`).
 #[component]
 pub fn ListTable(list: Value, #[prop(optional)] on_toggle: Option<Callback<(u64, bool)>>, #[prop(optional)] locked: bool) -> impl IntoView {

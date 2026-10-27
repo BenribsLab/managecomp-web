@@ -182,6 +182,19 @@ pub fn Classification(ctx: StageCtx, contest: String) -> impl IntoView {
             }
         });
     };
+    // Impression : le classement final seul, ou toute la compétition.
+    let choosing = RwSignal::new(false);
+    let print_all = move |final_only: bool| {
+        choosing.set(false);
+        let id = contest.get_value();
+        let format = if final_only { "html-final" } else { "html" };
+        spawn_local(async move {
+            match api::text(&format!("/api/contests/{id}/export/{format}")).await {
+                Ok(html) => super::print_html(&html),
+                Err(e) => alert(&e.message),
+            }
+        });
+    };
     view! {
         <div class="stage-bar">
             <span class="spacer"></span>
@@ -198,10 +211,24 @@ pub fn Classification(ctx: StageCtx, contest: String) -> impl IntoView {
                 match d.get("youth").and_then(Value::as_array).cloned().filter(|r| !r.is_empty()) {
                     // Entraînement des jeunes : classement final puis chaque groupe rempli.
                     Some(results) => view! { <super::groups::GroupSheetsButton ctx=ctx ranking=youth_ranking_print(results) /> }.into_any(),
-                    None => view! { <PrintButton /> }.into_any(),
+                    None => view! { <button class="light" on:click=move |_| choosing.set(true)>"Imprimer"</button> }.into_any(),
                 }
             }}
         </div>
+        {move || choosing.get().then(|| view! {
+            <leptos::portal::Portal>
+                <div class="modal-backdrop" on:click=move |_| choosing.set(false)>
+                    <div class="modal" on:click=|ev| ev.stop_propagation()>
+                        <h3>"Imprimer"</h3>
+                        <div class="actions">
+                            <button class="light" on:click=move |_| choosing.set(false)>"Annuler"</button>
+                            <button title="Poules, lobbys, tableaux et classement final" on:click=move |_| print_all(false)>"Intégralité de la compétition"</button>
+                            <button on:click=move |_| print_all(true)>"Classement final"</button>
+                        </div>
+                    </div>
+                </div>
+            </leptos::portal::Portal>
+        })}
         {move || {
             ctx.data
                 .get()
