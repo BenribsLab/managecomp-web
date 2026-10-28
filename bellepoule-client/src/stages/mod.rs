@@ -212,7 +212,8 @@ pub fn print_html(html: &str) {
     let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
     let Some(frame) = document.create_element("iframe").ok().and_then(|e| e.dyn_into::<web_sys::HtmlIFrameElement>().ok()) else { return };
     let _ = frame.set_attribute("style", "position:fixed;right:0;bottom:0;width:0;height:0;border:0");
-    frame.set_srcdoc(html);
+    // Sans le rechargement automatique de la page exportée.
+    frame.set_srcdoc(&html.replace("setInterval (function(){location.reload ();}, 60*1000);", ""));
     let target = frame.clone();
     let onload = wasm_bindgen::closure::Closure::once_into_js(move || {
         if let Some(w) = target.content_window() {

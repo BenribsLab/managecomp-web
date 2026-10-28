@@ -18,6 +18,8 @@ pub struct StageInfo {
     kind: &'static str,
     class_name: String,
     name: String,
+    /// Nom donné par l'organisateur (sinon vide ou « Round #n »).
+    named: bool,
     locked: bool,
     /// La phase peut être retirée de la formule.
     removable: bool,
@@ -62,6 +64,7 @@ pub fn view(c: &mut bp_core::contest::Contest) -> ScheduleView {
             kind: kind_code(s.kind()),
             class_name: tr(s.kind().class_name()),
             name: s.name(),
+            named: !bp_core::schedule::Schedule::is_default_name(&s.name()),
             locked: s.base().locked,
             removable: false,
             can_up: false,
@@ -211,6 +214,27 @@ pub async fn remove_stage(State(store): State<Shared>, client: Client, Path((id,
                 return Err(bad_request("cette phase ne peut pas être retirée"));
             }
             c.with_schedule(|s, ctx| s.remove_user_stage(ctx, index));
+            Ok(view(c))
+        })
+        .ok_or_else(not_found)?
+        .map_err(internal)?;
+    Ok(Json(result?))
+}
+
+#[derive(Deserialize)]
+pub struct RenameStage {
+    name: String,
+}
+
+/// Nom facultatif d'une phase (vide : le nom par défaut).
+pub async fn rename_stage(State(store): State<Shared>, client: Client, Path((id, index)): Path<(String, usize)>, Json(input): Json<RenameStage>) -> Result<Json<ScheduleView>, ApiError> {
+    let mut store = store.lock().await;
+    let result = store
+        .update(&client, &id, |c| {
+            if c.schedule.stage(index).is_none() {
+                return Err(not_found());
+            }
+            c.schedule.rename_stage(index, &input.name.chars().take(80).collect::<String>());
             Ok(view(c))
         })
         .ok_or_else(not_found)?

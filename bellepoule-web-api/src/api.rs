@@ -63,6 +63,7 @@ pub fn router(store: Shared) -> Router {
         .route("/api/contests/{id}/schedule/stages", post(schedule::add_stage))
         .route("/api/contests/{id}/schedule/stages/{index}", delete(schedule::remove_stage))
         .route("/api/contests/{id}/schedule/stages/{index}/move", post(schedule::move_stage))
+        .route("/api/contests/{id}/schedule/stages/{index}/name", post(schedule::rename_stage))
         .route("/api/contests/{id}/next", post(schedule::next))
         .route("/api/contests/{id}/previous", post(schedule::previous))
         // Phases

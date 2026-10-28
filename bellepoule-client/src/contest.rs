@@ -326,6 +326,26 @@ fn FormulaDialog(id: String, schedule: RwSignal<Option<ScheduleView>>, on_close:
                     view! {
                         <div class="stage-settings">
                             <h3>{format!("Réglages : {label}")}</h3>
+                            {(st.kind != "checkin").then(|| {
+                                let index = st.index;
+                                view! {
+                                    <label class="inline">
+                                        "Nom du tour "
+                                        <input type="text" maxlength="80" placeholder="facultatif (ex. Qualifications, Finale)"
+                                            prop:value=if st.named { st.name.clone() } else { String::new() }
+                                            on:change=move |ev| {
+                                                let name = event_target_value(&ev);
+                                                let id = id.get_value();
+                                                spawn_local(async move {
+                                                    match api::send::<_, ScheduleView>("POST", &format!("/api/contests/{id}/schedule/stages/{index}/name"), &serde_json::json!({ "name": name })).await {
+                                                        Ok(s) => schedule.set(Some(s)),
+                                                        Err(e) => alert(&e.message),
+                                                    }
+                                                });
+                                            } />
+                                    </label>
+                                }
+                            })}
                             <crate::stages::StageSettings id=id.get_value() index=st.index kind=st.kind.clone() on_change=reload />
                         </div>
                     }

@@ -198,14 +198,44 @@ impl Schedule {
         }
     }
 
-    /// `GiveName` : les tours de poules s'appellent « Round #n ».
+    /// `GiveName` : les tours de poules s'appellent « Round #n », sauf ceux
+    /// que l'utilisateur a nommés.
     fn give_name(&mut self, index: usize) {
-        if self.stages[index].kind() != StageKind::PoolSupervisor {
+        if self.stages[index].kind() != StageKind::PoolSupervisor || !Self::is_default_name(&self.stages[index].name()) {
             return;
         }
         let round = self.stages[..=index].iter().filter(|s| s.kind() == StageKind::PoolSupervisor).count();
         let name = crate::i18n::tr("Round #%d").replace("%d", &round.to_string());
         self.stages[index].set_name(&name);
+    }
+
+    /// Nom vide ou donné automatiquement (« Round #3 »).
+    pub fn is_default_name(name: &str) -> bool {
+        let pattern = crate::i18n::tr("Round #%d");
+        let (before, after) = pattern.split_once("%d").unwrap_or((&pattern, ""));
+        name.is_empty()
+            || name
+                .strip_prefix(before)
+                .and_then(|n| n.strip_suffix(after))
+                .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+    }
+
+    /// Nom facultatif d'une phase (« Qualifications », « Finale »…). Vide :
+    /// le nom par défaut (« Round #n » pour un tour de poules). La
+    /// composition des poules porte le même nom que son tour.
+    pub fn rename_stage(&mut self, index: usize, name: &str) -> bool {
+        let Some(stage) = self.stages.get(index) else { return false };
+        let before = stage.name();
+        let pool = stage.kind() == StageKind::PoolSupervisor;
+        self.stages[index].set_name(name.trim());
+        if pool && name.trim().is_empty() {
+            self.give_name(index);
+        }
+        let name = self.stages[index].name();
+        if pool && index > 0 && self.stages[index - 1].kind() == StageKind::PoolAllocator {
+            self.stages[index - 1].set_name(&name);
+        }
+        name != before
     }
 
     /// Nom complet affiché dans l'onglet (`GetFullName`).

@@ -289,6 +289,8 @@ pub struct StageInfo {
     pub kind: String,
     pub class_name: String,
     pub name: String,
+    #[serde(default)]
+    pub named: bool,
     pub locked: bool,
     #[serde(default)]
     pub removable: bool,

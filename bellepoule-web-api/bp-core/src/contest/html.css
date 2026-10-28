@@ -188,6 +188,21 @@
       }
       A:link    {text-decoration: underline; color: #117827}
       A:visited {text-decoration: underline; color: #117827}
+
+      /* Impression : toutes les phases, une par page, sur fond blanc. */
+      @media print
+      {
+        body, .EvenRow, .OddRow, .GridSeparator, .TableCell, .TableCellFirstCol, .TableCellLastCol, .TableConnector, .EmptyTableCell
+        {
+          background: White !important;
+        }
+        .TableConnector { color: White; }
+        .EvenRow td, .OddRow td { border-bottom: 1px solid #bbbbbb; }
+        #menu, .Footer { display: none; }
+        .Round { display: block !important; page-break-before: always; break-before: page; }
+        #menu + .Round { page-break-before: avoid; break-before: avoid; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      }
     </style>
 
     <script language="JavaScript">

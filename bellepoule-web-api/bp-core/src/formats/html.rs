@@ -60,7 +60,7 @@ pub fn dump_contest(header: &ContestHeader, rounds: &[HtmlRound], current_stage:
         } else {
             out.push_str(">\n");
         }
-        out.push_str(&format!("        <h1>{}</h1>\n", r.class_name));
+        out.push_str(&format!("        <h1>{}</h1>\n", format!("{} {}", r.class_name, r.name).trim()));
         if r.index <= current_stage {
             out.push_str(&r.html);
         }

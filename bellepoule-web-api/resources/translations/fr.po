@@ -2452,3 +2452,9 @@ msgstr "Équilibrée : serpentin d'après le classement d'entrée, comme les pou
 
 msgid "Fencers and teams"
 msgstr "Tireurs et équipes"
+
+msgid "Name of the round"
+msgstr "Nom du tour"
+
+msgid "optional (e.g. Qualifications, Final)"
+msgstr "facultatif (ex. Qualifications, Finale)"
