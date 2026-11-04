@@ -877,3 +877,9 @@ tr.qualified td:first-child { box-shadow: inset 4px 0 0 var(--success, #16a34a);
 .ref-lobby td, .ref-lobby th { height: 3em; }
 .ref-lobby .ref-gname { white-space: normal; line-height: 1.2; }
 .ref-place-input { width: 3.2em; font-size: 1.2rem; text-align: center; border: 2px solid #0866cd; border-radius: 10px; padding: 6px 0; }
+
+/* Impression des tableaux : bandes équilibrées, une par page */
+.print-page.bracket-page { min-height: 0; }
+.bracket-page-title { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 2mm; }
+.bracket-window { position: relative; overflow: hidden; }
+.b-print-score { position: absolute; font-size: 0.9rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
