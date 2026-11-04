@@ -441,14 +441,14 @@ input.b-score { position: absolute; border: 1px solid #999; border-radius: 3px; 
 .ms-name { font-size: 1.15rem; font-weight: 700; color: grey; }
 .ms-box { display: inline-flex; align-items: center; gap: 4px; min-width: 45mm; min-height: 7mm; border: 1px solid #ccc; padding: 0 6px; color: darkgreen; font-weight: 700; }
 .ms-label { color: grey; font-size: 0.7rem; font-weight: 700; }
-.ms-fencer { display: grid; grid-template-columns: 55mm 1fr 14mm 40mm; align-items: center; gap: 3mm; margin: 2mm 0; }
+.ms-fencer { display: grid; grid-template-columns: 46mm max-content 12mm minmax(14mm, 40mm); align-items: center; gap: 3mm; margin: 2mm 0; }
 .ms-identity { display: flex; flex-direction: column; font-size: 0.8rem; }
 .ms-identity strong { color: darkblue; }
 .ms-identity .muted { font-style: italic; font-size: 0.7rem; }
-.ms-touches { display: grid; grid-template-columns: repeat(15, 6.2mm); gap: 1px; }
-.ms-touch { width: 6mm; height: 6mm; border: 1px solid #222; font-size: 0.6rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.ms-touches { display: flex; gap: 1px; }
+.ms-touch { flex-shrink: 0; width: 5.6mm; height: 5.6mm; border: 1px solid #222; font-size: 0.6rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 .ms-score { height: 8mm; border: 1.5px solid #222; }
-.ms-signature { height: 8mm; background: #d9d9d9; color: #f2f2f2; font-weight: 700; display: flex; align-items: center; justify-content: center; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.ms-signature { min-width: 0; overflow: hidden; font-size: 0.75rem; height: 8mm; background: #d9d9d9; color: #f2f2f2; font-weight: 700; display: flex; align-items: center; justify-content: center; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .bout .winner { color: #168456; font-weight: 700; }
 
 /* Feuilles des groupes (entraînement des jeunes) */
