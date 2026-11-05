@@ -100,6 +100,7 @@ pub fn router(store: Shared) -> Router {
         .route("/api/smartpoule/phone/absence", post(smartpoule::phone_absence))
         .route("/api/smartpoule/phone/call", post(smartpoule::phone_call))
         .route("/api/smartpoule/security", get(smartpoule::security).post(smartpoule::security_action))
+        .route("/api/contests/{id}/open-sheets", get(smartpoule::open_sheets))
         .route("/api/live", get(smartpoule::live))
         // Appel
         .route("/api/contests/{id}/checkin", get(checkin::get_checkin))

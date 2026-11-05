@@ -63,6 +63,19 @@ curl -X POST https://api.managecomp.org/api/admin/clients \
 
 The club key is shown only once: write it down.
 
+## Open sheet QR codes (third-party application)
+
+For a club competition, a third-party application (an association management extension, for instance) can get one QR code per pool and per running table bout. **Any phone** that scans it opens ManageComp Referee on that sheet, in full (every bout), **without a PIN**; it has no access to any other sheet.
+
+```sh
+curl https://api.managecomp.org/api/contests/<competition>/open-sheets \
+  -H "x-api-key: <club key>"
+```
+
+Response: `{ "sheets": [ { "token", "kind" (pool, match, lobby), "name", "competition", "piste", "time", "over", "fencers", "url", "svg" } ] }`. `url` is the address to put in the QR code, `svg` the QR code already drawn. Parameters: `?token=<token>` for one sheet, `?svg=false` for the addresses only.
+
+These QR codes are not printed on the sheets: keep them for club competitions, since anyone who sees one can enter the scores of the sheet.
+
 ## Updates
 
 ```sh

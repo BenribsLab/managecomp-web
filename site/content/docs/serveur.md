@@ -62,6 +62,19 @@ curl -X POST https://api.managecomp.org/api/admin/clients \
 
 La clé du club n'est affichée qu'une fois : notez-la.
 
+## QR codes ouverts des feuilles (application tierce)
+
+Pour une compétition de club, une application tierce (une extension de gestion d'association, par exemple) peut obtenir un QR code par poule et par match de tableau en cours. **N'importe quel téléphone** qui le scanne ouvre ManageComp Arbitre sur cette feuille, en entier (tous les matchs), **sans PIN** ; il n'a accès à aucune autre feuille.
+
+```sh
+curl https://api.managecomp.org/api/contests/<compétition>/open-sheets \
+  -H "x-api-key: <clé du club>"
+```
+
+Réponse : `{ "sheets": [ { "token", "kind" (pool, match, lobby), "name", "competition", "piste", "time", "over", "fencers", "url", "svg" } ] }`. `url` est l'adresse à mettre dans le QR code, `svg` le QR code déjà dessiné. Paramètres : `?token=<jeton>` pour une seule feuille, `?svg=false` pour les adresses seules.
+
+Ces QR codes ne figurent pas sur les feuilles imprimées : réservez-les aux compétitions de club, puisque quiconque les voit peut saisir les scores de la feuille.
+
 ## Mises à jour
 
 ```sh

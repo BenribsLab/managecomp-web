@@ -13,10 +13,15 @@
 //!   les scores (`/api/smartpoule/phone/…`).
 //! - Les compétitions gérées directement par la version web sont servies
 //!   sans relais (lecture et écriture immédiates).
+//! - **QR code ouvert d'une feuille** (`GET /api/contests/{id}/open-sheets`,
+//!   compétitions de club) : n'importe quel téléphone qui le scanne arbitre
+//!   cette poule ou ce match, en entier, sans PIN. La clé (`o<jeton>.<signature>`)
+//!   est signée avec la clé d'administration du club.
 
 use std::collections::HashMap;
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
@@ -229,6 +234,41 @@ pub struct PhoneQuery {
 enum Who {
     Referee(u32, String),
     Admin,
+    /// QR code ouvert d'une feuille (jeton) : cette feuille seule, en entier.
+    Sheet(String),
+}
+
+impl Who {
+    fn label(&self) -> String {
+        match self {
+            Who::Admin => "Administrateur".to_string(),
+            Who::Referee(_, n) => n.clone(),
+            Who::Sheet(_) => "Arbitre".to_string(),
+        }
+    }
+}
+
+/// Signature d'une clé ouverte : clé d'administration du club et jeton.
+fn open_signature(admin_key: &str, token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(format!("open-sheet|{admin_key}|{token}").as_bytes()).iter().take(16).map(|b| format!("{b:02x}")).collect()
+}
+
+/// Clé d'un QR code ouvert : `o<jeton en hexadécimal>.<signature>`.
+fn open_key(admin_key: &str, token: &str) -> String {
+    let hex: String = token.bytes().map(|b| format!("{b:02x}")).collect();
+    format!("o{hex}.{}", open_signature(admin_key, token))
+}
+
+/// Jeton d'une clé ouverte dont la signature est bonne.
+fn open_token(admin_key: &str, key: &str) -> Option<String> {
+    let (hex, signature) = key.strip_prefix('o')?.split_once('.')?;
+    if hex.len() % 2 != 0 {
+        return None;
+    }
+    let bytes: Option<Vec<u8>> = (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok()).collect();
+    let token = String::from_utf8(bytes?).ok()?;
+    same(&open_signature(admin_key, &token), signature).then_some(token)
 }
 
 impl crate::store::Store {
@@ -267,6 +307,9 @@ impl crate::store::Store {
         if q.r == 0 {
             let admin = state.get("admin_key").and_then(Value::as_str).map(str::to_string);
             let web_admin = self.smartpoule_admin_key(&club);
+            if let Some(token) = open_token(&web_admin, &q.k) {
+                return Ok((club, Who::Sheet(token)));
+            }
             if admin.as_deref() == Some(q.k.as_str()) || web_admin == q.k {
                 return Ok((club, Who::Admin));
             }
@@ -501,6 +544,7 @@ fn mine(job: &Value, who: &Who) -> bool {
     match who {
         Who::Admin => true,
         Who::Referee(r, _) => job.get("referees").and_then(Value::as_array).is_some_and(|l| l.iter().any(|x| x.as_u64() == Some(*r as u64))),
+        Who::Sheet(token) => job.get("token").and_then(Value::as_str) == Some(token.as_str()),
     }
 }
 
@@ -515,10 +559,7 @@ pub async fn phone_jobs(State(store): State<Shared>, Query(q): Query<PhoneQuery>
     for (_, contest) in store.list(&club) {
         jobs.extend(contest.smartpoule_jobs(None).into_iter().filter(|j| mine(j, &who)));
     }
-    let name = match &who {
-        Who::Admin => "Administrateur".to_string(),
-        Who::Referee(_, n) => n.clone(),
-    };
+    let name = who.label();
     Ok(Json(json!({ "club": club.name, "name": name, "jobs": jobs })))
 }
 
@@ -527,8 +568,13 @@ pub async fn phone_sheet(State(store): State<Shared>, Query(q): Query<PhoneQuery
     let mut store = store.lock().await;
     let (club, who) = store.authenticate(&q)?;
     let token = q.token.clone().ok_or_else(|| bad_request("jeton attendu"))?;
+    if let Who::Sheet(own) = &who {
+        if *own != token {
+            return Err(forbidden());
+        }
+    }
     let referee = match who {
-        Who::Admin => None,
+        Who::Admin | Who::Sheet(_) => None,
         Who::Referee(r, _) => Some(r),
     };
     let mut sheet = store.sheet_of(&club, &token, referee).ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "match introuvable".into()))?;
@@ -554,6 +600,11 @@ impl crate::store::Store {
 
     /// Un arbitre n'agit que sur les feuilles qui lui sont affectées.
     fn check_assigned(&self, club: &Client, who: &Who, token: &str) -> Result<(), ApiError> {
+        if let Who::Sheet(own) = who {
+            if own != token {
+                return Err(forbidden());
+            }
+        }
         if let Who::Referee(r, _) = who {
             let assigned = self.all_jobs(club).iter().any(|job| job.get("token").and_then(Value::as_str) == Some(token) && mine(job, &Who::Referee(*r, String::new())));
             if !assigned {
@@ -589,10 +640,7 @@ pub async fn phone_call(State(store): State<Shared>, Json(a): Json<PhoneCall>) -
         None => None,
     };
     let text = |k: &str| sheet.as_ref().and_then(|s| s.get(k)).and_then(Value::as_str).unwrap_or("").trim().to_string();
-    let referee = match &who {
-        Who::Admin => "Administrateur".to_string(),
-        Who::Referee(_, n) => n.clone(),
-    };
+    let referee = who.label();
     let relay = store.relays.entry(club.id.clone()).or_default();
     let token = token.unwrap_or_default();
     // Un appel en cours du même arbitre pour la même feuille suffit.
@@ -644,10 +692,7 @@ pub async fn phone_absence(State(store): State<Shared>, Json(a): Json<PhoneAbsen
         .cloned()
         .ok_or_else(|| bad_request("tireur introuvable"))?;
     let text = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").trim().to_string();
-    let referee = match &who {
-        Who::Admin => "Administrateur".to_string(),
-        Who::Referee(_, n) => n.clone(),
-    };
+    let referee = who.label();
     let relay = store.relays.entry(club.id.clone()).or_default();
     if a.absent {
         if !relay.reports.iter().any(|r| !r.done && r.kind.is_empty() && r.token == a.token && r.fencer == a.fencer) {
@@ -735,8 +780,13 @@ pub async fn phone_score(State(store): State<Shared>, Json(s): Json<PhoneScore>)
     let mut store = store.lock().await;
     let q = PhoneQuery { c: s.c.clone(), r: s.r, k: s.k.clone(), token: None, id: None };
     let (club, who) = store.authenticate(&q)?;
+    if let Who::Sheet(own) = &who {
+        if *own != s.token {
+            return Err(forbidden());
+        }
+    }
     let referee = match who {
-        Who::Admin => 0,
+        Who::Admin | Who::Sheet(_) => 0,
         Who::Referee(r, _) => r,
     };
     if s.values.is_none() && s.officiating.is_none() && s.relay.is_none() { return Err(bad_request("score ou arbitrage attendu")); }
@@ -791,6 +841,7 @@ pub async fn phone_result(State(store): State<Shared>, Query(q): Query<PhoneQuer
     let relay = store.relays.entry(club.id.clone()).or_default();
     let s = relay.submissions.iter().find(|s| s.id == id).ok_or_else(|| bad_request("saisie inconnue"))?;
     if let Who::Referee(reference, _) = who { if s.referee != reference { return Err(forbidden()); } }
+    if let Who::Sheet(own) = who { if s.token != own { return Err(forbidden()); } }
     Ok(Json(match &s.result {
         None => json!({ "status": "pending" }),
         Some(Ok(())) => json!({ "status": "ok" }),
@@ -896,4 +947,89 @@ pub async fn live(State(store): State<Shared>, Query(q): Query<LiveQuery>) -> Re
     state["age_ms"] = json!(age);
     state["club"] = json!(club.name);
     Ok(Json(state))
+}
+
+/// Adresse de ManageComp Arbitre vue par le navigateur : `arbitre.<domaine>`
+/// derrière `app.` ou `api.<domaine>`, sinon `/arbitre/` sur le même site.
+fn arbitre_base(headers: &HeaderMap) -> String {
+    let host = headers.get("host").and_then(|h| h.to_str().ok()).unwrap_or("localhost");
+    let proto = headers.get("x-forwarded-proto").and_then(|h| h.to_str().ok()).filter(|p| !p.is_empty()).unwrap_or("http");
+    if host.starts_with("arbitre.") {
+        return format!("{proto}://{host}/");
+    }
+    for prefix in ["app.", "api.", "compete.", "live."] {
+        if let Some(domain) = host.strip_prefix(prefix) {
+            return format!("{proto}://arbitre.{domain}/");
+        }
+    }
+    format!("{proto}://{host}/arbitre/")
+}
+
+fn enc(text: &str) -> String {
+    text.bytes()
+        .map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
+        .collect()
+}
+
+fn qr_svg(text: &str) -> String {
+    use qrcode::render::svg;
+    qrcode::QrCode::with_error_correction_level(text.as_bytes(), qrcode::EcLevel::M)
+        .map(|code| code.render::<svg::Color>().quiet_zone(true).min_dimensions(200, 200).dark_color(svg::Color("#000")).light_color(svg::Color("#fff")).build())
+        .unwrap_or_default()
+}
+
+#[derive(Deserialize)]
+pub struct OpenSheetsQuery {
+    /// Une seule feuille (jeton).
+    #[serde(default)]
+    token: Option<String>,
+    /// `false` : sans le SVG des QR codes (adresses seules).
+    #[serde(default)]
+    svg: Option<bool>,
+}
+
+/// `GET /api/contests/{id}/open-sheets` : QR codes ouverts des poules et
+/// des matchs de tableau en cours d'une compétition de la version web.
+/// N'importe quel téléphone qui scanne l'un d'eux arbitre la feuille en
+/// entier, sans PIN (compétitions de club).
+///
+/// Réponse : `{ sheets: [{ token, kind, name, competition, piste, time,
+/// over, fencers, url, svg }] }`.
+pub async fn open_sheets(
+    State(store): State<Shared>,
+    client: Client,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(q): Query<OpenSheetsQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let mut store = store.lock().await;
+    let jobs: Vec<Value> = store.list(&client).find(|(cid, _)| **cid == id).map(|(_, c)| c.smartpoule_jobs(None)).ok_or_else(crate::api::not_found)?;
+    let admin = store.smartpoule_admin_key(&client);
+    let base = arbitre_base(&headers);
+    let with_svg = q.svg.unwrap_or(true);
+    let sheets: Vec<Value> = jobs
+        .into_iter()
+        .filter(|job| q.token.as_deref().is_none_or(|t| job.get("token").and_then(Value::as_str) == Some(t)))
+        .filter_map(|job| {
+            let token = job.get("token").and_then(Value::as_str)?.to_string();
+            let url = format!("{base}?c={}&r=0&k={}", enc(&client.id), enc(&open_key(&admin, &token)));
+            let text = |k: &str| job.get(k).cloned().unwrap_or(Value::Null);
+            Some(json!({
+                "token": token,
+                "kind": text("kind"),
+                "name": text("name"),
+                "competition": text("competition"),
+                "piste": text("piste"),
+                "time": text("time"),
+                "over": text("over"),
+                "fencers": text("fencers"),
+                "svg": if with_svg { Value::String(qr_svg(&url)) } else { Value::Null },
+                "url": url,
+            }))
+        })
+        .collect();
+    if q.token.is_some() && sheets.is_empty() {
+        return Err(crate::api::not_found());
+    }
+    Ok(Json(json!({ "sheets": sheets })))
 }
