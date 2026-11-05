@@ -37,6 +37,11 @@ pub struct SeasonContest {
     pub name: String,
     pub date: String,
     pub category: String,
+    /// Arme et genre (libellés : « Fleuret », « Hommes »…).
+    #[serde(default)]
+    pub weapon: String,
+    #[serde(default)]
+    pub gender: String,
     pub participants: usize,
     pub results: Vec<Result>,
 }
@@ -64,7 +69,16 @@ impl SeasonContest {
             })
             .collect();
         let title = if c.label.trim().is_empty() { c.name.clone() } else { format!("{} - {}", c.name, c.label) };
-        Some(SeasonContest { id: id.into(), name: title, date: c.date_image(), category, participants: results.len(), results })
+        Some(SeasonContest {
+            id: id.into(),
+            name: title,
+            date: c.date_image(),
+            category,
+            weapon: crate::i18n::tr(c.weapon.image),
+            gender: c.gender_label(),
+            participants: results.len(),
+            results,
+        })
     }
 }
 
@@ -95,6 +109,128 @@ impl Overrides {
         self.merges.retain(|from, to| !from.starts_with(&format!("{key}|")) && *from != key && !to.starts_with(&format!("{key}|")) && *to != key);
         self.splits.insert(key);
     }
+}
+
+/// Un circuit : les compétitions qui comptent pour un classement.
+///
+/// Un circuit simple retient les compétitions de ses catégories, armes et
+/// genres (vide : toutes), plus celles ajoutées à la main (`include`), moins
+/// celles retirées (`exclude`). Un classement général (`circuits` non vide)
+/// réunit les compétitions de plusieurs circuits.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Circuit {
+    #[serde(default)]
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub categories: Vec<String>,
+    #[serde(default)]
+    pub weapons: Vec<String>,
+    #[serde(default)]
+    pub genders: Vec<String>,
+    #[serde(default)]
+    pub include: Vec<String>,
+    #[serde(default)]
+    pub exclude: Vec<String>,
+    /// Classement général : les circuits réunis.
+    #[serde(default)]
+    pub circuits: Vec<String>,
+    /// Seulement les N meilleurs résultats de chaque tireur (aucun : tous).
+    #[serde(default)]
+    pub best: Option<u32>,
+}
+
+impl Circuit {
+    pub fn is_general(&self) -> bool {
+        !self.circuits.is_empty()
+    }
+
+    /// La compétition répond aux filtres (sans les ajouts / retraits).
+    pub fn matches_filters(&self, c: &SeasonContest) -> bool {
+        let ok = |list: &[String], value: &str| list.is_empty() || list.iter().any(|v| v == value);
+        ok(&self.categories, &c.category) && ok(&self.weapons, &c.weapon) && ok(&self.genders, &c.gender)
+    }
+
+    /// La compétition compte pour ce circuit simple.
+    pub fn contains(&self, c: &SeasonContest) -> bool {
+        !self.exclude.contains(&c.id) && (self.include.contains(&c.id) || self.matches_filters(c))
+    }
+}
+
+/// Fichier de la saison (`saison.json`) : corrections et circuits.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeasonConfig {
+    #[serde(flatten)]
+    pub overrides: Overrides,
+    #[serde(default)]
+    pub circuits: Vec<Circuit>,
+}
+
+impl SeasonConfig {
+    pub fn circuit(&self, id: &str) -> Option<&Circuit> {
+        self.circuits.iter().find(|c| c.id == id)
+    }
+
+    /// Ajoute ou remplace un circuit (identifiant donné s'il manque).
+    pub fn upsert(&mut self, mut circuit: Circuit) -> String {
+        if circuit.id.is_empty() {
+            let mut n = self.circuits.len() + 1;
+            while self.circuit(&format!("c{n}")).is_some() {
+                n += 1;
+            }
+            circuit.id = format!("c{n}");
+        }
+        let own = circuit.id.clone();
+        circuit.circuits.retain(|c| *c != own);
+        match self.circuits.iter_mut().find(|c| c.id == own) {
+            Some(c) => *c = circuit,
+            None => self.circuits.push(circuit),
+        }
+        own
+    }
+
+    /// Retire un circuit (et des classements généraux qui le réunissaient).
+    pub fn remove(&mut self, id: &str) {
+        self.circuits.retain(|c| c.id != id);
+        for c in &mut self.circuits {
+            c.circuits.retain(|x| x != id);
+        }
+    }
+
+    /// Compétitions d'un circuit (ordre de `all`), classement général compris.
+    pub fn contests(&self, all: &[SeasonContest], id: &str) -> Vec<SeasonContest> {
+        let mut ids = BTreeSet::new();
+        self.collect(all, id, &mut ids, &mut BTreeSet::new());
+        all.iter().filter(|c| ids.contains(&c.id)).cloned().collect()
+    }
+
+    fn collect(&self, all: &[SeasonContest], id: &str, ids: &mut BTreeSet<String>, seen: &mut BTreeSet<String>) {
+        if !seen.insert(id.to_string()) {
+            return;
+        }
+        let Some(circuit) = self.circuit(id) else { return };
+        if circuit.is_general() {
+            for sub in &circuit.circuits {
+                self.collect(all, sub, ids, seen);
+            }
+        } else {
+            ids.extend(all.iter().filter(|c| circuit.contains(c)).map(|c| c.id.clone()));
+        }
+    }
+
+    /// Classement d'un circuit (`best` : ses N meilleurs résultats).
+    pub fn ranking(&self, all: &[SeasonContest], id: &str) -> (Vec<SeasonContest>, Vec<SeasonRow>) {
+        let contests = self.contests(all, id);
+        let best = self.circuit(id).and_then(|c| c.best).map(|n| n as usize);
+        let rows = ranking_best(&contests, &self.overrides, best);
+        (contests, rows)
+    }
+}
+
+/// Valeurs distinctes (catégories, armes, genres) des compétitions.
+pub fn distinct(contests: &[SeasonContest], f: impl Fn(&SeasonContest) -> &str) -> Vec<String> {
+    let set: BTreeSet<String> = contests.iter().map(|c| f(c).to_string()).filter(|v| !v.is_empty()).collect();
+    set.into_iter().collect()
 }
 
 /// Une ligne du classement de saison.
@@ -194,6 +330,12 @@ fn identify(contests: &[SeasonContest], overrides: &Overrides) -> Vec<Vec<String
 /// Classement de saison : total des points, du plus grand au plus petit.
 /// `category` : seulement les compétitions de cette catégorie (code).
 pub fn ranking(contests: &[SeasonContest], overrides: &Overrides) -> Vec<SeasonRow> {
+    ranking_best(contests, overrides, None)
+}
+
+/// Classement où seuls les `best` meilleurs résultats de chaque tireur
+/// comptent dans le total (tous si `None`).
+pub fn ranking_best(contests: &[SeasonContest], overrides: &Overrides, best: Option<usize>) -> Vec<SeasonRow> {
     let keys = identify(contests, overrides);
     let mut rows: BTreeMap<String, SeasonRow> = BTreeMap::new();
     for (ci, c) in contests.iter().enumerate() {
@@ -218,6 +360,13 @@ pub fn ranking(contests: &[SeasonContest], overrides: &Overrides) -> Vec<SeasonR
         }
     }
     let mut rows: Vec<SeasonRow> = rows.into_values().collect();
+    if let Some(n) = best {
+        for row in rows.iter_mut() {
+            let mut pts: Vec<f64> = row.points.iter().flatten().copied().collect();
+            pts.sort_by(|a, b| b.total_cmp(a));
+            row.total = pts.into_iter().take(n).sum();
+        }
+    }
     rows.sort_by(|a, b| b.total.total_cmp(&a.total).then_with(|| norm(&a.first_name).cmp(&norm(&b.first_name))));
     // Ex æquo : même rang.
     let mut previous: Option<(f64, u32)> = None;
@@ -240,7 +389,38 @@ mod tests {
     }
 
     fn contest(id: &str, results: Vec<Result>) -> SeasonContest {
-        SeasonContest { id: id.into(), name: id.into(), date: String::new(), category: String::new(), participants: results.len(), results }
+        let category = results.first().map(|r| r.category.clone()).unwrap_or_default();
+        SeasonContest { id: id.into(), name: id.into(), date: String::new(), category, weapon: "Fleuret".into(), gender: String::new(), participants: results.len(), results }
+    }
+
+    #[test]
+    fn circuits_and_general_ranking() {
+        let season = vec![
+            contest("A", vec![r("Lina", "", "M11", 10.0)]),
+            contest("B", vec![r("Lina", "", "M11", 4.0)]),
+            contest("C", vec![r("Hugo", "", "M13", 8.0), r("Lina", "", "M13", 1.0)]),
+        ];
+        let mut cfg = SeasonConfig::default();
+        let m11 = cfg.upsert(Circuit { name: "M11".into(), categories: vec!["M11".into()], best: Some(1), ..Default::default() });
+        let m13 = cfg.upsert(Circuit { name: "M13".into(), categories: vec!["M13".into()], ..Default::default() });
+        let all = cfg.upsert(Circuit { name: "Général".into(), circuits: vec![m11.clone(), m13.clone()], ..Default::default() });
+        let (contests, rows) = cfg.ranking(&season, &m11);
+        assert_eq!(contests.len(), 2);
+        assert_eq!(rows[0].total, 10.0, "meilleur résultat seul");
+        let (contests, rows) = cfg.ranking(&season, &all);
+        assert_eq!(contests.len(), 3);
+        assert_eq!(rows.iter().find(|r| r.first_name == "Lina").unwrap().total, 15.0);
+        // Ajout / retrait à la main.
+        let mut c = cfg.circuit(&m13).unwrap().clone();
+        c.include.push("A".into());
+        c.exclude.push("C".into());
+        cfg.upsert(c);
+        assert_eq!(cfg.contests(&season, &m13).iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), vec!["A"]);
+        cfg.remove(&m13);
+        assert_eq!(cfg.circuit(&all).unwrap().circuits, vec![m11]);
+        // Ancien fichier (corrections seules) toujours lisible.
+        let old: SeasonConfig = serde_json::from_str(r#"{"merges":{"a":"b"},"splits":[]}"#).unwrap();
+        assert_eq!(old.overrides.merges.len(), 1);
     }
 
     #[test]

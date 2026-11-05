@@ -883,3 +883,7 @@ tr.qualified td:first-child { box-shadow: inset 4px 0 0 var(--success, #16a34a);
 .bracket-page-title { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 2mm; }
 .bracket-window { position: relative; overflow: hidden; }
 .b-print-score { position: absolute; font-size: 0.9rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+
+/* Circuits du classement de saison */
+.check-row { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; }
+.circuit-contests { display: flex; flex-direction: column; gap: 0.2rem; max-height: 14rem; overflow: auto; }

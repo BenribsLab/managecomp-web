@@ -2458,3 +2458,69 @@ msgstr "Nom du tour"
 
 msgid "optional (e.g. Qualifications, Final)"
 msgstr "facultatif (ex. Qualifications, Finale)"
+
+msgid "New circuit"
+msgstr "Nouveau circuit"
+
+msgid "A circuit groups competitions (categories, weapons, genders, chosen competitions); a general ranking groups several circuits"
+msgstr "Un circuit regroupe des compétitions (catégories, armes, genres, compétitions choisies) ; un classement général réunit plusieurs circuits"
+
+msgid "Edit the circuit"
+msgstr "Modifier le circuit"
+
+msgid "Delete the circuit"
+msgstr "Supprimer le circuit"
+
+msgid "All competitions"
+msgstr "Toutes les compétitions"
+
+msgid "general"
+msgstr "général"
+
+msgid "best result(s) count"
+msgstr "meilleur(s) résultat(s) compté(s)"
+
+msgid "The competitions are not touched."
+msgstr "Les compétitions ne sont pas touchées."
+
+msgid "e.g. M11 circuit, Youth challenge, General"
+msgstr "ex. Circuit M11, Challenge des jeunes, Général"
+
+msgid "Circuit (competitions)"
+msgstr "Circuit (des compétitions)"
+
+msgid "General ranking (several circuits)"
+msgstr "Classement général (plusieurs circuits)"
+
+msgid "none checked: all"
+msgstr "aucune cochée : toutes"
+
+msgid "Weapons"
+msgstr "Armes"
+
+msgid "Genders"
+msgstr "Genres"
+
+msgid "Competitions (checked from the filters; check or uncheck to add or remove)"
+msgstr "Compétitions (cochées d'après les filtres ; cochez ou décochez pour ajouter ou retirer)"
+
+msgid "Circuits brought together"
+msgstr "Circuits réunis"
+
+msgid "Create the circuits to bring together first."
+msgstr "Créez d'abord les circuits à réunir."
+
+msgid "Count only the best results of each fencer:"
+msgstr "Ne compter que les meilleurs résultats de chaque tireur :"
+
+msgid "0: all results"
+msgstr "0 : tous les résultats"
+
+msgid "(0: all)"
+msgstr "(0 : tous)"
+
+msgid "Give the circuit a name."
+msgstr "Donnez un nom au circuit."
+
+msgid "Check the circuits to bring together."
+msgstr "Cochez les circuits à réunir."
