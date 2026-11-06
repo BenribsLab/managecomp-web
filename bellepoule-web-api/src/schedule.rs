@@ -112,11 +112,20 @@ pub async fn next(State(store): State<Shared>, client: Client, Path(id): Path<St
     let add_barrage = options.map(|o| o.add_barrage).unwrap_or(false);
     let mut store = store.lock().await;
     let mut created: Vec<bp_core::contest::Contest> = Vec::new();
+    // Fin de l'appel d'une compétition de club : classement club (saison).
+    let at_checkin = store.list(&client).find(|(cid, _)| **cid == id).is_some_and(|(_, c)| c.schedule.current().is_some_and(|s| s.kind() == StageKind::Checkin));
+    let season = at_checkin.then(|| {
+        let all: Vec<bp_core::season::SeasonContest> = store.list(&client).filter_map(|(cid, c)| bp_core::season::SeasonContest::from_contest(cid, c)).collect();
+        (all, crate::season::load_config(&store, &client))
+    });
     let result = store
         .update(&client, &id, |c| {
             let before = view(c);
             if !before.can_next {
                 return Err(bad_request(before.error.unwrap_or_else(|| "la phase en cours n'est pas terminée".into())));
+            }
+            if let Some((all, config)) = &season {
+                bp_core::season::apply_club_seeding(&id, c, all, config);
             }
             // Point de scission : une nouvelle compétition par division.
             let index = c.schedule.current_index();

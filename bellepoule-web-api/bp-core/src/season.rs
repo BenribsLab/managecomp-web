@@ -4,9 +4,11 @@
 //! chaque tireur : prénom, nom, catégorie de la compétition, place, points.
 //! Un même tireur est reconnu d'une compétition à l'autre, sans licence :
 //!
-//! 1. par le **prénom seul**, s'il n'y a qu'une personne avec ce prénom ;
-//! 2. sinon par le **prénom et la catégorie** de la compétition ;
-//! 3. sinon par le **prénom, le nom et la catégorie**.
+//! 1. par le **prénom seul**, s'il n'y a qu'un nom avec ce prénom ;
+//! 2. sinon par le **prénom et le nom**, quelle que soit la catégorie ;
+//!    sans nom, par le seul nom connu de ce prénom dans la catégorie, sinon
+//!    par le **prénom et la catégorie** ;
+//! 3. séparation imposée : **prénom, nom et catégorie**.
 //!
 //! Un nom absent (compétitions de club où seul le prénom est saisi) ne
 //! distingue personne. Corrections à la main ([`Overrides`]) : regrouper deux
@@ -260,6 +262,7 @@ pub fn norm(s: &str) -> String {
             'ô' | 'ö' => 'o',
             'ù' | 'û' | 'ü' => 'u',
             'ç' => 'c',
+            '-' | '\'' | '’' => ' ',
             c => c,
         })
         .collect::<String>()
@@ -287,28 +290,36 @@ fn identify(contests: &[SeasonContest], overrides: &Overrides) -> Vec<Vec<String
             }
             continue;
         }
-        // Personnes distinctes : (catégorie, nom) ; un nom absent ne distingue pas.
-        let people: BTreeSet<(String, String)> = list.iter().map(|at| result(at)).filter(|r| !r.last_name.is_empty()).map(|r| (norm(&r.category), norm(&r.last_name))).collect();
-        if people.len() <= 1 {
+        // Personnes distinctes : les noms ; un nom absent ne distingue pas, et
+        // la catégorie non plus (un tireur change de catégorie d'une
+        // compétition à l'autre).
+        let names: BTreeSet<String> = list.iter().map(|at| norm(&result(at).last_name)).filter(|n| !n.is_empty()).collect();
+        if names.len() <= 1 {
             for at in &list {
                 keys[at.0][at.1] = first.clone();
             }
             continue;
         }
-        // Règle 2 : prénom et catégorie ; règle 3 : prénom, nom et catégorie.
-        let mut by_category: BTreeMap<String, Vec<(usize, usize)>> = BTreeMap::new();
+        // Plusieurs noms : prénom et nom. Sans nom, le seul nom connu de ce
+        // prénom dans la catégorie, sinon prénom et catégorie.
         for at in &list {
-            by_category.entry(norm(&result(at).category)).or_default().push(*at);
-        }
-        for (category, group) in by_category {
-            let names: BTreeSet<String> = group.iter().map(|at| norm(&result(at).last_name)).filter(|n| !n.is_empty()).collect();
-            for at in &group {
-                keys[at.0][at.1] = if names.len() <= 1 {
-                    format!("{first}|{category}")
-                } else {
-                    full(result(at))
-                };
-            }
+            let r = result(at);
+            let last = norm(&r.last_name);
+            keys[at.0][at.1] = if !last.is_empty() {
+                format!("{first}||{last}")
+            } else {
+                let category = norm(&r.category);
+                let same: BTreeSet<String> = list
+                    .iter()
+                    .map(|x| result(x))
+                    .filter(|x| norm(&x.category) == category && !x.last_name.trim().is_empty())
+                    .map(|x| norm(&x.last_name))
+                    .collect();
+                match same.len() {
+                    1 => format!("{first}||{}", same.into_iter().next().unwrap_or_default()),
+                    _ => format!("{first}|{category}"),
+                }
+            };
         }
     }
     // Regroupements à la main (en chaîne).
@@ -325,6 +336,84 @@ fn identify(contests: &[SeasonContest], overrides: &Overrides) -> Vec<Vec<String
         }
     }
     keys
+}
+
+/// Tireurs d'une compétition à répartir (points nuls), pour les reconnaître
+/// dans le classement club.
+fn entries(id: &str, c: &Contest, fencers: &[crate::player::PlayerRef]) -> SeasonContest {
+    let category = c.category.xml_image();
+    let results = fencers
+        .iter()
+        .filter_map(|r| c.players.get(*r))
+        .map(|p| Result {
+            first_name: p.str_attr("first_name").unwrap_or_default().trim().to_string(),
+            last_name: p.str_attr("name").unwrap_or_default().trim().to_string(),
+            category: category.clone(),
+            place: 0,
+            points: 0.0,
+        })
+        .collect::<Vec<_>>();
+    SeasonContest {
+        id: id.into(),
+        name: c.name.clone(),
+        date: c.date_image(),
+        category,
+        weapon: crate::i18n::tr(c.weapon.image),
+        gender: c.gender_label(),
+        participants: results.len(),
+        results,
+    }
+}
+
+/// Rang de chaque tireur de `target` dans le classement club : le premier
+/// circuit simple qui retient la compétition, sinon les compétitions de sa
+/// catégorie (toutes s'il n'y en a pas). `None` : absent du classement.
+pub fn seeding_ranks(all: &[SeasonContest], config: &SeasonConfig, target: &SeasonContest) -> Vec<Option<u32>> {
+    let n = target.results.len();
+    let others: Vec<SeasonContest> = all.iter().filter(|c| c.id != target.id).cloned().collect();
+    let circuit = config.circuits.iter().find(|c| !c.is_general() && c.contains(target));
+    let (mut contests, best) = match circuit {
+        Some(c) => (config.contests(&others, &c.id), c.best.map(|n| n as usize)),
+        None => {
+            let same: Vec<SeasonContest> = others.iter().filter(|c| c.category == target.category).cloned().collect();
+            (if same.is_empty() { others } else { same }, None)
+        }
+    };
+    if contests.is_empty() {
+        return vec![None; n];
+    }
+    contests.push(target.clone());
+    let keys = identify(&contests, &config.overrides);
+    let rows = ranking_best(&contests, &config.overrides, best);
+    // Seulement les tireurs déjà classés (vus dans une autre compétition).
+    let ranks: BTreeMap<&str, u32> = rows.iter().filter(|r| r.competitions > 1).map(|r| (r.key.as_str(), r.rank)).collect();
+    keys.last().map(|k| k.iter().map(|key| ranks.get(key.as_str()).copied()).collect()).unwrap_or_else(|| vec![None; n])
+}
+
+/// Compétition de club : quand aucun tireur n'a de classement, le classement
+/// club (saison) donne leur classement pour la répartition (serpentin, groupes
+/// de niveau). Les tireurs absents du classement club viennent après.
+/// Renvoie le nombre de tireurs classés.
+pub fn apply_club_seeding(id: &str, c: &mut Contest, all: &[SeasonContest], config: &SeasonConfig) -> usize {
+    use crate::player::{AttrId, PlayerClass};
+    if c.is_team_event() {
+        return 0;
+    }
+    let ranking = AttrId::global("ranking");
+    let fencers: Vec<crate::player::PlayerRef> = c.players.refs().into_iter().filter(|r| c.players.get(*r).is_some_and(|p| p.is(PlayerClass::Fencer))).collect();
+    if fencers.iter().any(|r| c.players.get(*r).is_some_and(|p| p.get(&ranking).is_some())) {
+        return 0;
+    }
+    let target = entries(id, c, &fencers);
+    let ranks = seeding_ranks(all, config, &target);
+    let mut count = 0;
+    for (r, rank) in fencers.iter().zip(ranks) {
+        if let (Some(rank), Some(p)) = (rank, c.players.get_mut(*r)) {
+            p.set_uint(&ranking, rank);
+            count += 1;
+        }
+    }
+    count
 }
 
 /// Classement de saison : total des points, du plus grand au plus petit.
@@ -434,12 +523,37 @@ mod tests {
         // Une seule Lina : prénom seul ; son nom vient du résultat qui le donne.
         let lina = get("lina").unwrap();
         assert_eq!((lina.total, lina.competitions, lina.last_name.as_str()), (17.0, 2, "DUBOIS"));
-        // Deux Hugo en M11 (MARTIN, ROUX) : prénom + nom + catégorie ; le Hugo M13 seul de sa catégorie.
-        assert_eq!(get("hugo|m11|martin").unwrap().total, 14.0);
-        assert_eq!(get("hugo|m11|roux").unwrap().total, 4.0);
+        // Deux Hugo (MARTIN, ROUX) : prénom + nom ; le Hugo M13 sans nom, seul de sa catégorie.
+        assert_eq!(get("hugo||martin").unwrap().total, 14.0);
+        assert_eq!(get("hugo||roux").unwrap().total, 4.0);
         assert_eq!(get("hugo|m13").unwrap().total, 5.0);
         assert_eq!(rows[0].key, "lina");
         assert_eq!(rows[0].rank, 1);
+    }
+
+    #[test]
+    fn club_ranking_seeds_a_new_competition() {
+        let season = vec![
+            contest("A", vec![r("Lina", "", "M11", 10.0), r("Hugo", "", "M11", 6.0)]),
+            contest("B", vec![r("Hugo", "", "M11", 9.0), r("Zoé", "", "M11", 1.0)]),
+        ];
+        let target = contest("N", vec![r("Zoé", "", "M11", 0.0), r("Hugo", "", "M11", 0.0), r("Lina", "", "M11", 0.0), r("Paul", "", "M11", 0.0)]);
+        let ranks = seeding_ranks(&season, &SeasonConfig::default(), &target);
+        assert_eq!(ranks, vec![Some(3), Some(1), Some(2), None]);
+    }
+
+    #[test]
+    fn same_fencer_in_several_categories_is_one_row() {
+        let season = vec![
+            contest("A", vec![r("Emma", "MARTIN", "M11", 10.0), r("Emma", "PETIT", "M11", 3.0)]),
+            contest("B", vec![r("Emma", "Martin", "M13", 6.0), r("Emma", "", "M13", 2.0)]),
+            contest("C", vec![r("Emma", "PETIT", "", 1.0)]),
+        ];
+        let rows = ranking(&season, &Overrides::default());
+        assert_eq!(rows.len(), 2, "{rows:?}");
+        // MARTIN : M11 + M13 + l'Emma sans nom en M13 (seule Emma nommée de M13).
+        assert_eq!(rows.iter().find(|r| r.key == "emma||martin").unwrap().total, 18.0);
+        assert_eq!(rows.iter().find(|r| r.key == "emma||petit").unwrap().total, 4.0);
     }
 
     #[test]
@@ -449,8 +563,8 @@ mod tests {
             contest("B", vec![r("Léa", "MOREAU", "M9", 9.0)]),
         ];
         let rows = ranking(&season, &Overrides::default());
-        // Deux personnes (M9 MOREAU, M11 PETIT) : la Léa sans nom en M9 rejoint MOREAU.
-        assert_eq!(rows.iter().find(|r| r.key == "lea|m9").unwrap().total, 19.0);
+        // Deux personnes (MOREAU, PETIT) : la Léa sans nom en M9 rejoint MOREAU.
+        assert_eq!(rows.iter().find(|r| r.key == "lea||moreau").unwrap().total, 19.0);
         let mut o = Overrides::default();
         o.split("Léa");
         let rows = ranking(&season, &o);

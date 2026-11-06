@@ -70,6 +70,26 @@ pub struct Officiating {
     pub cards: Vec<CardEvent>,
 }
 impl Officiating {
+    /// Ramène le chrono, la manche et les scores dans les bornes de la phase
+    /// (réglages modifiés pendant le match, téléphone en retard…) : l'état
+    /// d'un arbitre n'est pas refusé pour si peu.
+    pub fn clamp(&mut self, timing: BoutTiming, max_score: u32) {
+        self.period = self.period.clamp(1, timing.periods.max(1));
+        self.remaining_ms = self.remaining_ms.min(timing.period_seconds as u64 * 1000);
+        if max_score > 0 {
+            for s in &mut self.scores {
+                *s = (*s).min(max_score);
+            }
+        }
+        self.green_side = self.green_side.min(1);
+        self.revision = self.revision.max(1);
+        for card in &mut self.cards {
+            card.period = card.period.clamp(1, 20);
+            card.remaining_ms = card.remaining_ms.min(3_600_000);
+            card.side = card.side.min(1);
+        }
+    }
+
     pub fn validate(&self, timing: BoutTiming, max_score: u32) -> Result<(), String> {
         if self.green_side > 1 || self.revision == 0 || self.period == 0 || self.period > timing.periods
             || self.remaining_ms > timing.period_seconds as u64 * 1000

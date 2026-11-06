@@ -18,7 +18,7 @@ fn config_path(store: &Store, client: &Client) -> std::path::PathBuf {
     store.dir.join("clients").join(&client.id).join("saison.json")
 }
 
-fn load_config(store: &Store, client: &Client) -> SeasonConfig {
+pub(crate) fn load_config(store: &Store, client: &Client) -> SeasonConfig {
     std::fs::read_to_string(config_path(store, client)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
 

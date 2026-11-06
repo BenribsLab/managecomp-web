@@ -826,7 +826,11 @@ pub async fn phone_score(State(store): State<Shared>, Json(s): Json<PhoneScore>)
     if let Some(id) = web {
         let result = store
             .update(&club, &id, |c| {
-                if let Some(state) = s.officiating.clone() { c.smartpoule_apply_officiating(&s.token, s.bout as usize, state)?; }
+                // Avec un score : le journal d'arbitrage ne bloque pas son enregistrement.
+                if let Some(state) = s.officiating.clone() {
+                    let applied = c.smartpoule_apply_officiating(&s.token, s.bout as usize, state);
+                    if s.values.is_none() { applied?; }
+                }
                 if let Some(log) = s.relay.clone() { c.smartpoule_apply_relay(&s.token, s.bout as usize, log)?; }
                 if let Some(values) = s.values.clone() { c.smartpoule_apply_score(&s.token, s.bout as usize, values)?; }
                 Ok::<(), String>(())

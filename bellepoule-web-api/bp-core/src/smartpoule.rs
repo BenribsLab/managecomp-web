@@ -604,7 +604,8 @@ impl Contest {
     }
 }
 
-fn apply_officiating(m: &mut Match, timing: crate::officiating::BoutTiming, state: crate::officiating::Officiating) -> Result<(), String> {
+fn apply_officiating(m: &mut Match, timing: crate::officiating::BoutTiming, mut state: crate::officiating::Officiating) -> Result<(), String> {
+    state.clamp(timing, m.max_score);
     state.validate(timing, m.max_score)?;
     if let Some(old) = &m.officiating {
         if old == &state { return Ok(()); }
