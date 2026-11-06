@@ -54,6 +54,9 @@ pub struct Publication {
     pub updated: u64,
     /// Événement de l'épreuve (vide : épreuve seule).
     pub event: String,
+    /// Compétition de club (points activés) : nom du club dans le titre,
+    /// étiquette « Compétition club », comptée dans le classement club.
+    pub club_contest: bool,
 }
 
 /// Événement publié : plusieurs épreuves d'une même journée (ou d'un
@@ -85,6 +88,8 @@ pub struct PublicMeta {
     subtitle: String,
     date: String,
     location: String,
+    /// Compétition de club (points activés pour le classement club).
+    club_contest: bool,
 }
 
 impl PublicMeta {
@@ -101,6 +106,7 @@ impl PublicMeta {
             subtitle,
             date: format!("{:04}-{:02}-{:02}", c.year, c.month, c.day),
             location: c.location.trim().to_string(),
+            club_contest: c.points.enabled,
         }
     }
 }
@@ -311,7 +317,13 @@ impl Store {
         };
         let mut p = self.publications()[index].clone();
         p.club_name = client.name.clone();
-        p.title = meta.title.clone();
+        p.club_contest = meta.club_contest;
+        // Compétition de club : le nom du club dans le titre.
+        p.title = if meta.club_contest && !meta.title.to_lowercase().contains(&client.name.trim().to_lowercase()) && !client.name.trim().is_empty() {
+            format!("{} — {}", client.name.trim(), meta.title)
+        } else {
+            meta.title.clone()
+        };
         p.subtitle = meta.subtitle.clone();
         p.date = meta.date.clone();
         p.location = meta.location.clone();

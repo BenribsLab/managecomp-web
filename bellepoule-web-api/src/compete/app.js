@@ -17,7 +17,7 @@
     if (!q) return;
     q.addEventListener("input", () => {
       const v = norm(q.value);
-      $$(".card").forEach((c) => c.classList.toggle("hidden", v !== "" && !norm(c.dataset.s).includes(v)));
+      $$(".card, tr[data-s]").forEach((c) => c.classList.toggle("hidden", v !== "" && !norm(c.dataset.s).includes(v)));
     });
   }
 

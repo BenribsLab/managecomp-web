@@ -23,7 +23,7 @@ use crate::public::{public_base, PublicEvent, Publication};
 const CSS: &str = include_str!("compete/style.css");
 const JS: &str = include_str!("compete/app.js");
 /// Version des fichiers statiques (adresse changée à chaque modification).
-const ASSETS: &str = "4";
+const ASSETS: &str = "5";
 
 fn esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
@@ -48,7 +48,8 @@ fn layout(base: &str, title: &str, noindex: bool, body: String) -> String {
     format!(
         "<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">{robots}\
          <title>{t}</title><link rel=\"stylesheet\" href=\"{base}style.css?v={ASSETS}\"><script src=\"{base}app.js?v={ASSETS}\" defer></script></head>\
-         <body><header class=\"top\"><a class=\"brand\" href=\"{base}\"><b>Manage</b>Comp <span>résultats</span></a></header>{body}\
+         <body><header class=\"top\"><a class=\"brand\" href=\"{base}\"><b>Manage</b>Comp <span>résultats</span></a>\
+         <nav class=\"menu\"><a href=\"{base}\">Compétitions</a><a href=\"{base}classement-club\">Classement club</a></nav></header>{body}\
          <footer class=\"foot\"><a href=\"https://managecomp.org\">ManageComp</a> · logiciel libre de gestion de compétitions d'escrime</footer></body></html>",
         t = esc(title),
     )
@@ -106,13 +107,15 @@ fn cards(base: &str, list: &[Publication], with_club: bool) -> String {
     }
     let mut out = String::from("<div class=\"cards\">");
     for p in list {
-        let search = format!("{} {} {} {} {}", p.title, p.subtitle, p.club_name, p.location, date_fr(&p.date)).to_lowercase();
+        let tag = if p.club_contest { " compétition club" } else { "" };
+        let search = format!("{} {} {} {} {}{tag}", p.title, p.subtitle, p.club_name, p.location, date_fr(&p.date)).to_lowercase();
         out.push_str(&format!(
-            "<a class=\"card\" href=\"{base}{}/{}\" data-s=\"{}\"><span class=\"date\">{}</span><strong>{}</strong><span>{}</span><span class=\"muted\">{}</span></a>",
+            "<a class=\"card\" href=\"{base}{}/{}\" data-s=\"{}\"><span class=\"date\">{}{}</span><strong>{}</strong><span>{}</span><span class=\"muted\">{}</span></a>",
             esc(&p.club_slug),
             esc(&p.slug),
             esc(&search),
             date_fr(&p.date),
+            if p.club_contest { " <span class=\"tag\">Compétition club</span>" } else { "" },
             esc(&p.title),
             esc(&p.subtitle),
             esc(&[if with_club { p.club_name.clone() } else { String::new() }, p.location.clone()].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ")),
@@ -139,14 +142,22 @@ fn listing(base: &str, events: &[PublicEvent], publications: &[Publication], wit
     let mut out = String::from("<div class=\"cards\">");
     for e in &events {
         let count = publications.iter().filter(|p| p.event == e.id).count();
-        let search = format!("{} {} {} {} {}", e.name, e.categories, e.club_name, e.location, date_fr(&e.date)).to_lowercase();
+        // Événement de compétitions de club : nom du club et étiquette.
+        let club_event = count > 0 && publications.iter().filter(|p| p.event == e.id).all(|p| p.club_contest);
+        let name = if club_event && !e.name.to_lowercase().contains(&e.club_name.trim().to_lowercase()) && !e.club_name.trim().is_empty() {
+            format!("{} — {}", e.club_name.trim(), e.name)
+        } else {
+            e.name.clone()
+        };
+        let search = format!("{} {} {} {} {}{}", name, e.categories, e.club_name, e.location, date_fr(&e.date), if club_event { " compétition club" } else { "" }).to_lowercase();
         out.push_str(&format!(
-            "<a class=\"card event-card\" href=\"{base}{}/{}\" data-s=\"{}\"><span class=\"date\">{} · événement</span><strong>{}</strong><span>{}</span><span class=\"muted\">{}</span></a>",
+            "<a class=\"card event-card\" href=\"{base}{}/{}\" data-s=\"{}\"><span class=\"date\">{} · événement{}</span><strong>{}</strong><span>{}</span><span class=\"muted\">{}</span></a>",
             esc(&e.club_slug),
             esc(&e.slug),
             esc(&search),
             date_fr(&e.date),
-            esc(&e.name),
+            if club_event { " <span class=\"tag\">Compétition club</span>" } else { "" },
+            esc(&name),
             esc(&format!("{} · {count} épreuve{}", e.categories, if count > 1 { "s" } else { "" })),
             esc(&[if with_club { e.club_name.clone() } else { String::new() }, e.location.clone()].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ")),
         ));
@@ -183,8 +194,13 @@ pub async fn club(State(store): State<Shared>, headers: HeaderMap, Path(club): P
         (events, list)
     };
     let Some(name) = list.first().map(|p| p.club_name.clone()).or_else(|| events.first().map(|e| e.club_name.clone())) else { return not_found() };
+    let ranking = if list.iter().any(|p| p.club_contest && !p.noindex) {
+        format!("<p><a href=\"{base}{CLUB_RANKING}/{}\">Voir le classement club ›</a></p>", esc(&club))
+    } else {
+        String::new()
+    };
     let body = format!(
-        "<main class=\"wrap\"><p class=\"crumbs\"><a href=\"{base}\">Compétitions</a></p><h1>{}</h1><input class=\"search\" id=\"cards-q\" type=\"search\" placeholder=\"Rechercher une épreuve…\">{}</main>",
+        "<main class=\"wrap\"><p class=\"crumbs\"><a href=\"{base}\">Compétitions</a></p><h1>{}</h1>{ranking}<input class=\"search\" id=\"cards-q\" type=\"search\" placeholder=\"Rechercher une épreuve…\">{}</main>",
         esc(&name),
         listing(&base, &events, &list, false)
     );
@@ -975,4 +991,171 @@ fn ranking(c: &mut Contest, names: &Names) -> String {
     }
     let points_head = if points_col.is_some() { "<th>Points</th>" } else { "" };
     format!("<table class=\"list\"><thead><tr><th>Pl</th><th>Tireur</th><th>Club</th>{points_head}</tr></thead><tbody>{rows}</tbody></table>")
+}
+
+// ------------------------------------------------------------ classement club
+
+/// Adresse des pages du classement club.
+const CLUB_RANKING: &str = "classement-club";
+
+/// Classements club : les clubs qui ont publié des compétitions de club.
+pub async fn club_rankings(State(store): State<Shared>, headers: HeaderMap) -> Response {
+    let base = public_base(&headers);
+    let list: Vec<Publication> = {
+        let mut store = store.lock().await;
+        store.publications().iter().filter(|p| p.club_contest && !p.noindex).cloned().collect()
+    };
+    // Club : nom, adresse, compétitions, dernière date.
+    let mut clubs: Vec<(String, String, usize, String)> = Vec::new();
+    for p in &list {
+        match clubs.iter_mut().find(|c| c.1 == p.club_slug) {
+            Some(c) => {
+                c.2 += 1;
+                if p.date > c.3 {
+                    c.3 = p.date.clone();
+                }
+            }
+            None => clubs.push((p.club_name.clone(), p.club_slug.clone(), 1, p.date.clone())),
+        }
+    }
+    clubs.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    let cards: String = if clubs.is_empty() {
+        "<p class=\"muted\">Aucun classement club publié pour l'instant.</p>".into()
+    } else {
+        let items: String = clubs
+            .iter()
+            .map(|(name, slug, n, date)| {
+                format!(
+                    "<a class=\"card\" href=\"{base}{CLUB_RANKING}/{}\" data-s=\"{}\"><strong>{}</strong><span>{n} compétition{} de club</span><span class=\"muted\">dernière le {}</span></a>",
+                    esc(slug),
+                    esc(&name.to_lowercase()),
+                    esc(name),
+                    if *n > 1 { "s" } else { "" },
+                    date_fr(date),
+                )
+            })
+            .collect();
+        format!("<div class=\"cards\">{items}</div>")
+    };
+    let body = format!(
+        "<main class=\"wrap\"><h1>Classement club</h1><p class=\"muted\">Classements de saison des clubs, d'après leurs compétitions de club publiées.</p>\
+         <input class=\"search\" id=\"cards-q\" type=\"search\" placeholder=\"Rechercher un club…\">{cards}</main>"
+    );
+    html(layout(&base, "Classement club — ManageComp", false, body))
+}
+
+/// Classements d'un club : par série (circuits) et classement général.
+pub async fn club_ranking(State(store): State<Shared>, headers: HeaderMap, Path(club): Path<String>) -> Response {
+    use bp_core::season::{self, SeasonContest, SeasonRow};
+    let base = public_base(&headers);
+    let (list, files, config) = {
+        let mut store = store.lock().await;
+        let list: Vec<Publication> = store.publications().iter().filter(|p| p.club_slug == club && p.club_contest && !p.noindex).cloned().collect();
+        let Some(first) = list.first() else { return not_found() };
+        let client = crate::auth::Client { id: first.club.clone(), name: first.club_name.clone() };
+        let files: Vec<(String, Option<String>)> = list.iter().map(|p| (p.id.clone(), std::fs::read_to_string(store.publication_file(&p.id)).ok())).collect();
+        (list, files, crate::season::load_config(&store, &client))
+    };
+    let mut all: Vec<SeasonContest> = files
+        .into_iter()
+        .filter_map(|(id, xml)| {
+            let mut c = Contest::new(None, false);
+            c.load_xml_str(&xml?).ok()?;
+            SeasonContest::from_contest(&id, &c)
+        })
+        .collect();
+    all.sort_by(|a, b| season_iso(&a.date).cmp(&season_iso(&b.date)).then(a.name.cmp(&b.name)));
+    let club_name = list[0].club_name.clone();
+    // Noms abrégés si l'une des publications le demande.
+    let short = list.iter().any(|p| p.names == "short");
+    let url_of = |id: &str| list.iter().find(|p| p.id == id).map(|p| format!("{base}{}/{}", p.club_slug, p.slug));
+
+    // Classements : les séries (circuits) du club, puis le classement général.
+    let mut rankings: Vec<(String, String, Vec<SeasonContest>, Vec<SeasonRow>, Option<u32>)> = Vec::new();
+    for c in &config.circuits {
+        let (contests, rows) = config.ranking(&all, &c.id);
+        if !contests.is_empty() {
+            rankings.push((c.id.clone(), c.name.clone(), contests, rows, c.best));
+        }
+    }
+    if config.circuits.is_empty() {
+        for category in season::distinct(&all, |c| &c.category) {
+            let contests: Vec<SeasonContest> = all.iter().filter(|c| c.category == category).cloned().collect();
+            let rows = season::ranking(&contests, &config.overrides);
+            rankings.push((format!("cat-{}", category.to_lowercase()), category.clone(), contests, rows, None));
+        }
+    }
+    if !config.circuits.iter().any(|c| c.is_general()) && rankings.len() != 1 {
+        let rows = season::ranking(&all, &config.overrides);
+        rankings.push(("general".into(), "Classement général".into(), all.clone(), rows, None));
+    }
+
+    let tabs: String = rankings.iter().map(|(id, name, ..)| format!("<a href=\"#{}\">{}</a>", esc(id), esc(name))).collect();
+    let sections: String = rankings
+        .iter()
+        .map(|(id, name, contests, rows, best)| {
+            let lines: String = rows
+                .iter()
+                .map(|r| {
+                    let shown = if short {
+                        let initial = r.last_name.chars().next().map(|c| format!(" {c}.")).unwrap_or_default();
+                        format!("{}{initial}", r.first_name)
+                    } else {
+                        format!("{} {}", r.first_name, r.last_name).trim().to_string()
+                    };
+                    format!(
+                        "<tr data-s=\"{}\"><td class=\"rank\">{}</td><td class=\"name\">{}</td><td class=\"res\">{}</td><td class=\"res\"><b>{}</b></td></tr>",
+                        esc(&shown.to_lowercase()),
+                        r.rank,
+                        esc(&shown),
+                        r.competitions,
+                        points(r.total),
+                    )
+                })
+                .collect();
+            let used: String = contests
+                .iter()
+                .map(|c| {
+                    let label = format!("{} · {}", date_fr(&season_iso(&c.date)), c.name);
+                    match url_of(&c.id) {
+                        Some(u) => format!("<li><a href=\"{}\">{}</a></li>", esc(&u), esc(&label)),
+                        None => format!("<li>{}</li>", esc(&label)),
+                    }
+                })
+                .collect();
+            let note = best.map(|n| format!("<p class=\"muted\">Seuls les {n} meilleurs résultats de chaque tireur comptent.</p>")).unwrap_or_default();
+            format!(
+                "<section class=\"ranking\" id=\"{}\"><h2>{}</h2>{note}\
+                 <div class=\"scroll\"><table class=\"list\"><thead><tr><th>Rang</th><th>Tireur</th><th class=\"res\">Compét.</th><th class=\"res\">Points</th></tr></thead><tbody>{lines}</tbody></table></div>\
+                 <details><summary>{} compétition{}</summary><ul>{used}</ul></details></section>",
+                esc(id),
+                esc(name),
+                contests.len(),
+                if contests.len() > 1 { "s" } else { "" },
+            )
+        })
+        .collect();
+    let body = format!(
+        "<main class=\"wrap\"><p class=\"crumbs\"><a href=\"{base}{CLUB_RANKING}\">Classement club</a> › <a href=\"{base}{}\">Compétitions du club</a></p>\
+         <h1>{}</h1><p class=\"sub\">Classement club</p>\
+         <nav class=\"tabs plain\">{tabs}</nav>\
+         <input class=\"search\" id=\"cards-q\" type=\"search\" placeholder=\"Rechercher un tireur…\">{sections}</main>",
+        esc(&club),
+        esc(&club_name),
+    );
+    html(layout(&base, &format!("Classement club — {club_name}"), false, body))
+}
+
+/// Points : entiers sans décimale.
+fn points(v: f64) -> String {
+    if (v - v.round()).abs() < 1e-9 { format!("{}", v.round() as i64) } else { format!("{v:.1}") }
+}
+
+/// Date d'une compétition (`jj/mm/aaaa` ou `aaaa-mm-jj`) → `aaaa-mm-jj`.
+fn season_iso(date: &str) -> String {
+    let p: Vec<&str> = date.split(['/', '.']).collect();
+    match p[..] {
+        [d, m, y] if y.len() == 4 => format!("{y}-{m:0>2}-{d:0>2}"),
+        _ => date.to_string(),
+    }
 }

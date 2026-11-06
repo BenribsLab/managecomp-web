@@ -10,7 +10,16 @@
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 a { color: var(--accent); text-decoration: none; }
-.top { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; position: sticky; top: 0; z-index: 5; }
+.top { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; }
+.menu { display: flex; gap: 14px; margin-left: auto; font-size: 0.95rem; font-weight: 600; }
+.menu a { color: var(--text); }
+.menu a:hover { color: var(--accent); }
+.tag { display: inline-block; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 0 8px; font-size: 0.75rem; font-weight: 700; margin-left: 4px; }
+/* Classement club */
+.tabs.plain { position: static; flex-wrap: wrap; }
+.ranking { margin-top: 10px; scroll-margin-top: 60px; }
+.ranking details { margin: 6px 0 0; font-size: 0.9rem; }
+.ranking summary { cursor: pointer; color: var(--muted); }
 .brand { color: var(--text); font-size: 1.15rem; }
 .brand b { color: var(--accent); }
 .brand span { color: var(--muted); font-size: 0.9rem; margin-left: 4px; }
