@@ -194,7 +194,7 @@ pub async fn club(State(store): State<Shared>, headers: HeaderMap, Path(club): P
         (events, list)
     };
     let Some(name) = list.first().map(|p| p.club_name.clone()).or_else(|| events.first().map(|e| e.club_name.clone())) else { return not_found() };
-    let ranking = if list.iter().any(|p| p.club_contest && !p.noindex) {
+    let ranking = if published_rankings(&*store.lock().await).iter().any(|(_, p)| p.slug == club) {
         format!("<p><a href=\"{base}{CLUB_RANKING}/{}\">Voir le classement club ›</a></p>", esc(&club))
     } else {
         String::new()
@@ -998,47 +998,45 @@ fn ranking(c: &mut Contest, names: &Names) -> String {
 /// Adresse des pages du classement club.
 const CLUB_RANKING: &str = "classement-club";
 
-/// Classements club : les clubs qui ont publié des compétitions de club.
+/// Clubs dont le classement club est publié : (client, publication).
+fn published_rankings(store: &crate::store::Store) -> Vec<(crate::auth::Client, crate::season::RankingPublication)> {
+    store
+        .clients()
+        .iter()
+        .map(|c| crate::auth::Client { id: c.id.clone(), name: c.name.clone() })
+        .filter_map(|c| {
+            let p = crate::season::load_publication(store, &c.id);
+            (p.published && !p.slug.is_empty()).then_some((c, p))
+        })
+        .collect()
+}
+
+/// Classements club : les clubs qui ont publié le leur.
 pub async fn club_rankings(State(store): State<Shared>, headers: HeaderMap) -> Response {
     let base = public_base(&headers);
-    let list: Vec<Publication> = {
-        let mut store = store.lock().await;
-        store.publications().iter().filter(|p| p.club_contest && !p.noindex).cloned().collect()
+    let mut clubs: Vec<(String, String)> = {
+        let store = store.lock().await;
+        published_rankings(&store).into_iter().map(|(c, p)| (c.name, p.slug)).collect()
     };
-    // Club : nom, adresse, compétitions, dernière date.
-    let mut clubs: Vec<(String, String, usize, String)> = Vec::new();
-    for p in &list {
-        match clubs.iter_mut().find(|c| c.1 == p.club_slug) {
-            Some(c) => {
-                c.2 += 1;
-                if p.date > c.3 {
-                    c.3 = p.date.clone();
-                }
-            }
-            None => clubs.push((p.club_name.clone(), p.club_slug.clone(), 1, p.date.clone())),
-        }
-    }
     clubs.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
     let cards: String = if clubs.is_empty() {
         "<p class=\"muted\">Aucun classement club publié pour l'instant.</p>".into()
     } else {
         let items: String = clubs
             .iter()
-            .map(|(name, slug, n, date)| {
+            .map(|(name, slug)| {
                 format!(
-                    "<a class=\"card\" href=\"{base}{CLUB_RANKING}/{}\" data-s=\"{}\"><strong>{}</strong><span>{n} compétition{} de club</span><span class=\"muted\">dernière le {}</span></a>",
+                    "<a class=\"card\" href=\"{base}{CLUB_RANKING}/{}\" data-s=\"{}\"><strong>{}</strong><span>Classement club</span></a>",
                     esc(slug),
                     esc(&name.to_lowercase()),
                     esc(name),
-                    if *n > 1 { "s" } else { "" },
-                    date_fr(date),
                 )
             })
             .collect();
         format!("<div class=\"cards\">{items}</div>")
     };
     let body = format!(
-        "<main class=\"wrap\"><h1>Classement club</h1><p class=\"muted\">Classements de saison des clubs, d'après leurs compétitions de club publiées.</p>\
+        "<main class=\"wrap\"><h1>Classement club</h1><p class=\"muted\">Classements de saison des clubs.</p>\
          <input class=\"search\" id=\"cards-q\" type=\"search\" placeholder=\"Rechercher un club…\">{cards}</main>"
     );
     html(layout(&base, "Classement club — ManageComp", false, body))
@@ -1048,46 +1046,43 @@ pub async fn club_rankings(State(store): State<Shared>, headers: HeaderMap) -> R
 pub async fn club_ranking(State(store): State<Shared>, headers: HeaderMap, Path(club): Path<String>) -> Response {
     use bp_core::season::{self, SeasonContest, SeasonRow};
     let base = public_base(&headers);
-    let (list, files, config) = {
+    let (client, publication, all, config, urls, has_contests) = {
         let mut store = store.lock().await;
-        let list: Vec<Publication> = store.publications().iter().filter(|p| p.club_slug == club && p.club_contest && !p.noindex).cloned().collect();
-        let Some(first) = list.first() else { return not_found() };
-        let client = crate::auth::Client { id: first.club.clone(), name: first.club_name.clone() };
-        let files: Vec<(String, Option<String>)> = list.iter().map(|p| (p.id.clone(), std::fs::read_to_string(store.publication_file(&p.id)).ok())).collect();
-        (list, files, crate::season::load_config(&store, &client))
+        let Some((client, publication)) = published_rankings(&store).into_iter().find(|(_, p)| p.slug == club) else { return not_found() };
+        let all = crate::season::season_contests(&store, &client);
+        let config = crate::season::load_config(&store, &client);
+        // Compétitions publiées (et non cachées) : liens depuis le classement.
+        let public: Vec<(String, String)> = store.list(&client).filter_map(|(id, c)| c.public_id.clone().map(|p| (id.clone(), p))).collect();
+        let urls: Vec<(String, String)> = public
+            .into_iter()
+            .filter_map(|(id, pid)| store.publications().iter().find(|p| p.id == pid && p.club == client.id && !p.noindex).map(|p| (id, format!("{base}{}/{}", p.club_slug, p.slug))))
+            .collect();
+        let has_contests = store.publications().iter().any(|p| p.club == client.id);
+        (client, publication, all, config, urls, has_contests)
     };
-    let mut all: Vec<SeasonContest> = files
-        .into_iter()
-        .filter_map(|(id, xml)| {
-            let mut c = Contest::new(None, false);
-            c.load_xml_str(&xml?).ok()?;
-            SeasonContest::from_contest(&id, &c)
-        })
-        .collect();
-    all.sort_by(|a, b| season_iso(&a.date).cmp(&season_iso(&b.date)).then(a.name.cmp(&b.name)));
-    let club_name = list[0].club_name.clone();
-    // Noms abrégés si l'une des publications le demande.
-    let short = list.iter().any(|p| p.names == "short");
-    let url_of = |id: &str| list.iter().find(|p| p.id == id).map(|p| format!("{base}{}/{}", p.club_slug, p.slug));
+    let short = publication.names == "short";
 
     // Classements : les séries (circuits) du club, puis le classement général.
     let mut rankings: Vec<(String, String, Vec<SeasonContest>, Vec<SeasonRow>, Option<u32>)> = Vec::new();
-    for c in &config.circuits {
+    let chosen = |id: &str| publication.circuits.is_empty() || publication.circuits.iter().any(|c| c == id);
+    for c in config.circuits.iter().filter(|c| chosen(&c.id)) {
         let (contests, rows) = config.ranking(&all, &c.id);
         if !contests.is_empty() {
             rankings.push((c.id.clone(), c.name.clone(), contests, rows, c.best));
         }
     }
-    if config.circuits.is_empty() {
-        for category in season::distinct(&all, |c| &c.category) {
-            let contests: Vec<SeasonContest> = all.iter().filter(|c| c.category == category).cloned().collect();
-            let rows = season::ranking(&contests, &config.overrides);
-            rankings.push((format!("cat-{}", category.to_lowercase()), category.clone(), contests, rows, None));
+    if publication.circuits.is_empty() {
+        if config.circuits.is_empty() {
+            for category in season::distinct(&all, |c| &c.category) {
+                let contests: Vec<SeasonContest> = all.iter().filter(|c| c.category == category).cloned().collect();
+                let rows = season::ranking(&contests, &config.overrides);
+                rankings.push((format!("cat-{}", category.to_lowercase()), category.clone(), contests, rows, None));
+            }
         }
-    }
-    if !config.circuits.iter().any(|c| c.is_general()) && rankings.len() != 1 {
-        let rows = season::ranking(&all, &config.overrides);
-        rankings.push(("general".into(), "Classement général".into(), all.clone(), rows, None));
+        if !config.circuits.iter().any(|c| c.is_general()) && rankings.len() != 1 && !all.is_empty() {
+            let rows = season::ranking(&all, &config.overrides);
+            rankings.push(("general".into(), "Classement général".into(), all.clone(), rows, None));
+        }
     }
 
     let tabs: String = rankings.iter().map(|(id, name, ..)| format!("<a href=\"#{}\">{}</a>", esc(id), esc(name))).collect();
@@ -1113,37 +1108,40 @@ pub async fn club_ranking(State(store): State<Shared>, headers: HeaderMap, Path(
                     )
                 })
                 .collect();
-            let used: String = contests
-                .iter()
-                .map(|c| {
-                    let label = format!("{} · {}", date_fr(&season_iso(&c.date)), c.name);
-                    match url_of(&c.id) {
-                        Some(u) => format!("<li><a href=\"{}\">{}</a></li>", esc(&u), esc(&label)),
-                        None => format!("<li>{}</li>", esc(&label)),
-                    }
-                })
-                .collect();
+            let used = if publication.show_contests {
+                let items: String = contests
+                    .iter()
+                    .map(|c| {
+                        let label = format!("{} · {}", date_fr(&season_iso(&c.date)), c.name);
+                        match urls.iter().find(|(id, _)| *id == c.id) {
+                            Some((_, u)) => format!("<li><a href=\"{}\">{}</a></li>", esc(u), esc(&label)),
+                            None => format!("<li>{}</li>", esc(&label)),
+                        }
+                    })
+                    .collect();
+                format!("<details><summary>{} compétition{}</summary><ul>{items}</ul></details>", contests.len(), if contests.len() > 1 { "s" } else { "" })
+            } else {
+                String::new()
+            };
             let note = best.map(|n| format!("<p class=\"muted\">Seuls les {n} meilleurs résultats de chaque tireur comptent.</p>")).unwrap_or_default();
             format!(
                 "<section class=\"ranking\" id=\"{}\"><h2>{}</h2>{note}\
-                 <div class=\"scroll\"><table class=\"list\"><thead><tr><th>Rang</th><th>Tireur</th><th class=\"res\">Compét.</th><th class=\"res\">Points</th></tr></thead><tbody>{lines}</tbody></table></div>\
-                 <details><summary>{} compétition{}</summary><ul>{used}</ul></details></section>",
+                 <div class=\"scroll\"><table class=\"list\"><thead><tr><th>Rang</th><th>Tireur</th><th class=\"res\">Compét.</th><th class=\"res\">Points</th></tr></thead><tbody>{lines}</tbody></table></div>{used}</section>",
                 esc(id),
                 esc(name),
-                contests.len(),
-                if contests.len() > 1 { "s" } else { "" },
             )
         })
         .collect();
+    let sections = if sections.is_empty() { "<p class=\"muted\">Aucun résultat pour l'instant.</p>".to_string() } else { sections };
+    let club_link = if has_contests { format!(" › <a href=\"{base}{}\">Compétitions du club</a>", esc(&club)) } else { String::new() };
     let body = format!(
-        "<main class=\"wrap\"><p class=\"crumbs\"><a href=\"{base}{CLUB_RANKING}\">Classement club</a> › <a href=\"{base}{}\">Compétitions du club</a></p>\
+        "<main class=\"wrap\"><p class=\"crumbs\"><a href=\"{base}{CLUB_RANKING}\">Classement club</a>{club_link}</p>\
          <h1>{}</h1><p class=\"sub\">Classement club</p>\
          <nav class=\"tabs plain\">{tabs}</nav>\
          <input class=\"search\" id=\"cards-q\" type=\"search\" placeholder=\"Rechercher un tireur…\">{sections}</main>",
-        esc(&club),
-        esc(&club_name),
+        esc(&client.name),
     );
-    html(layout(&base, &format!("Classement club — {club_name}"), false, body))
+    html(layout(&base, &format!("Classement club — {}", client.name), false, body))
 }
 
 /// Points : entiers sans décimale.

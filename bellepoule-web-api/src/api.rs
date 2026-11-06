@@ -81,6 +81,7 @@ pub fn router(store: Shared) -> Router {
         // Classement de saison du club
         .route("/api/season", get(season::get))
         .route("/api/season/corrections", post(season::correct))
+        .route("/api/season/publication", get(season::get_publication).put(season::put_publication))
         .route("/api/season/circuits", post(season::save_circuit))
         .route("/api/season/circuits/{id}", delete(season::delete_circuit))
         // Organisation (pistes, arbitres, planning)

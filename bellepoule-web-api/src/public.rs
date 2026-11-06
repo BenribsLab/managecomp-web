@@ -240,7 +240,7 @@ impl Store {
     }
 
     /// Adresse du club, unique entre les clubs.
-    fn club_slug(&mut self, client: &Client) -> String {
+    pub(crate) fn club_slug(&mut self, client: &Client) -> String {
         if let Some(s) = self.publications().iter().find(|p| p.club == client.id).map(|p| p.club_slug.clone()) {
             return s;
         }

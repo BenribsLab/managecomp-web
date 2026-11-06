@@ -4,10 +4,10 @@
 //! circuits, avec les corrections à la main (`clients/<club>/saison.json`).
 
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use bp_core::season::{self, Circuit, SeasonConfig, SeasonContest};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::api::{bad_request, internal, not_found, ApiError, Shared};
@@ -131,4 +131,106 @@ fn date_key(date: &str) -> String {
         [d, m, y] if y.len() == 4 => format!("{y}{m:0>2}{d:0>2}"),
         _ => date.to_string(),
     }
+}
+
+// ------------------------------------------------- publication du classement
+
+/// Publication du classement club sur compete.<domaine>, indépendante de
+/// celle des compétitions : le classement compte toutes les compétitions du
+/// club dont les points sont activés, publiées ou non
+/// (`clients/<club>/classement-public.json`).
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RankingPublication {
+    pub published: bool,
+    /// Adresse du club sur le site public.
+    pub slug: String,
+    /// `full` : noms complets ; `short` : prénom et initiale du nom.
+    pub names: String,
+    /// Circuits publiés (vide : tous, plus le classement général).
+    pub circuits: Vec<String>,
+    /// Liste des compétitions retenues affichée sous chaque classement.
+    pub show_contests: bool,
+    pub updated: u64,
+}
+
+fn publication_path(store: &Store, club: &str) -> std::path::PathBuf {
+    store.dir.join("clients").join(club).join("classement-public.json")
+}
+
+pub(crate) fn load_publication(store: &Store, club: &str) -> RankingPublication {
+    std::fs::read_to_string(publication_path(store, club)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+}
+
+/// Compétitions du club comptées dans son classement (points activés).
+pub(crate) fn season_contests(store: &Store, client: &Client) -> Vec<SeasonContest> {
+    let mut all: Vec<SeasonContest> = store.list(client).filter_map(|(id, c)| SeasonContest::from_contest(id, c)).collect();
+    all.sort_by(|a, b| date_key(&a.date).cmp(&date_key(&b.date)).then(a.name.cmp(&b.name)));
+    all
+}
+
+fn publication_json(headers: &HeaderMap, p: &RankingPublication) -> Value {
+    let url = (!p.slug.is_empty()).then(|| format!("{}classement-club/{}", crate::public::public_base(headers), p.slug));
+    json!({
+        "published": p.published,
+        "url": if p.published { url } else { None },
+        "names": if p.names.is_empty() { "full" } else { p.names.as_str() },
+        "circuits": p.circuits,
+        "show_contests": p.show_contests,
+        "updated": p.updated,
+    })
+}
+
+/// `GET /api/season/publication` : état de la publication du classement.
+pub async fn get_publication(State(store): State<Shared>, client: Client, headers: HeaderMap) -> Json<Value> {
+    let store = store.lock().await;
+    Json(publication_json(&headers, &load_publication(&store, &client.id)))
+}
+
+#[derive(Deserialize)]
+pub struct PublicationInput {
+    published: bool,
+    #[serde(default)]
+    names: Option<String>,
+    #[serde(default)]
+    circuits: Option<Vec<String>>,
+    #[serde(default)]
+    show_contests: Option<bool>,
+}
+
+/// `PUT /api/season/publication` `{ published, names?, circuits?, show_contests? }` :
+/// publie (ou retire) le classement club du club.
+pub async fn put_publication(State(store): State<Shared>, client: Client, headers: HeaderMap, Json(i): Json<PublicationInput>) -> Result<Json<Value>, ApiError> {
+    let mut store = store.lock().await;
+    let mut p = load_publication(&store, &client.id);
+    p.published = i.published;
+    if let Some(names) = i.names {
+        if names != "full" && names != "short" {
+            return Err(bad_request("names : full ou short"));
+        }
+        p.names = names;
+    }
+    if p.names.is_empty() {
+        p.names = "full".into();
+    }
+    if let Some(circuits) = i.circuits {
+        let config = load_config(&store, &client);
+        if let Some(bad) = circuits.iter().find(|c| config.circuit(c).is_none()) {
+            return Err(bad_request(format!("circuit inconnu : {bad}")));
+        }
+        p.circuits = circuits;
+    }
+    if let Some(show) = i.show_contests {
+        p.show_contests = show;
+    }
+    if p.slug.is_empty() {
+        p.slug = store.club_slug(&client);
+    }
+    p.updated = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let path = publication_path(&store, &client.id);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(internal)?;
+    }
+    std::fs::write(path, serde_json::to_string_pretty(&p).unwrap_or_default()).map_err(internal)?;
+    Ok(Json(publication_json(&headers, &p)))
 }
