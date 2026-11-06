@@ -236,6 +236,9 @@ enum Who {
     Admin,
     /// QR code ouvert d'une feuille (jeton) : cette feuille seule, en entier.
     Sheet(String),
+    /// QR code ouvert d'une compétition (identifiant) : toutes ses feuilles,
+    /// en entier, au fur et à mesure qu'elles se débloquent.
+    Contest(String),
 }
 
 impl Who {
@@ -243,7 +246,7 @@ impl Who {
         match self {
             Who::Admin => "Administrateur".to_string(),
             Who::Referee(_, n) => n.clone(),
-            Who::Sheet(_) => "Arbitre".to_string(),
+            Who::Sheet(_) | Who::Contest(_) => "Arbitre".to_string(),
         }
     }
 }
@@ -259,6 +262,9 @@ fn open_key(admin_key: &str, token: &str) -> String {
     let hex: String = token.bytes().map(|b| format!("{b:02x}")).collect();
     format!("o{hex}.{}", open_signature(admin_key, token))
 }
+
+/// Préfixe du « jeton » signé d'un QR code ouvert de compétition.
+const CONTEST_SCOPE: &str = "contest:";
 
 /// Jeton d'une clé ouverte dont la signature est bonne.
 fn open_token(admin_key: &str, key: &str) -> Option<String> {
@@ -308,7 +314,10 @@ impl crate::store::Store {
             let admin = state.get("admin_key").and_then(Value::as_str).map(str::to_string);
             let web_admin = self.smartpoule_admin_key(&club);
             if let Some(token) = open_token(&web_admin, &q.k) {
-                return Ok((club, Who::Sheet(token)));
+                return Ok((club, match token.strip_prefix(CONTEST_SCOPE) {
+                    Some(id) => Who::Contest(id.to_string()),
+                    None => Who::Sheet(token),
+                }));
             }
             if admin.as_deref() == Some(q.k.as_str()) || web_admin == q.k {
                 return Ok((club, Who::Admin));
@@ -545,6 +554,8 @@ fn mine(job: &Value, who: &Who) -> bool {
         Who::Admin => true,
         Who::Referee(r, _) => job.get("referees").and_then(Value::as_array).is_some_and(|l| l.iter().any(|x| x.as_u64() == Some(*r as u64))),
         Who::Sheet(token) => job.get("token").and_then(Value::as_str) == Some(token.as_str()),
+        // Filtré par compétition dans `phone_jobs`.
+        Who::Contest(_) => false,
     }
 }
 
@@ -553,6 +564,11 @@ pub async fn phone_jobs(State(store): State<Shared>, Query(q): Query<PhoneQuery>
     let mut store = store.lock().await;
     let (club, who) = store.authenticate(&q)?;
     let mut jobs: Vec<Value> = Vec::new();
+    if let Who::Contest(id) = &who {
+        let contest = store.list(&club).find(|(cid, _)| *cid == id).map(|(_, c)| c).ok_or_else(forbidden)?;
+        let competition = contest.smartpoule_jobs(None).into_iter().find_map(|j| j.get("competition").and_then(Value::as_str).map(str::to_string)).unwrap_or_default();
+        return Ok(Json(json!({ "club": club.name, "name": who.label(), "competition": competition, "jobs": contest.smartpoule_jobs(None) })));
+    }
     if let Some(list) = store.relays.get(&club.id).and_then(|r| r.state.get("jobs")).and_then(Value::as_array) {
         jobs.extend(list.iter().filter(|j| mine(j, &who)).cloned());
     }
@@ -568,13 +584,11 @@ pub async fn phone_sheet(State(store): State<Shared>, Query(q): Query<PhoneQuery
     let mut store = store.lock().await;
     let (club, who) = store.authenticate(&q)?;
     let token = q.token.clone().ok_or_else(|| bad_request("jeton attendu"))?;
-    if let Who::Sheet(own) = &who {
-        if *own != token {
-            return Err(forbidden());
-        }
+    if !store.in_scope(&club, &who, &token) {
+        return Err(forbidden());
     }
     let referee = match who {
-        Who::Admin | Who::Sheet(_) => None,
+        Who::Admin | Who::Sheet(_) | Who::Contest(_) => None,
         Who::Referee(r, _) => Some(r),
     };
     let mut sheet = store.sheet_of(&club, &token, referee).ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "match introuvable".into()))?;
@@ -599,11 +613,18 @@ impl crate::store::Store {
     }
 
     /// Un arbitre n'agit que sur les feuilles qui lui sont affectées.
+    /// QR code ouvert : la feuille est la sienne, ou appartient à sa compétition.
+    fn in_scope(&self, club: &Client, who: &Who, token: &str) -> bool {
+        match who {
+            Who::Sheet(own) => own == token,
+            Who::Contest(id) => self.list(club).any(|(cid, c)| cid == id && c.smartpoule_sheet(token, None).is_some()),
+            _ => true,
+        }
+    }
+
     fn check_assigned(&self, club: &Client, who: &Who, token: &str) -> Result<(), ApiError> {
-        if let Who::Sheet(own) = who {
-            if own != token {
-                return Err(forbidden());
-            }
+        if !self.in_scope(club, who, token) {
+            return Err(forbidden());
         }
         if let Who::Referee(r, _) = who {
             let assigned = self.all_jobs(club).iter().any(|job| job.get("token").and_then(Value::as_str) == Some(token) && mine(job, &Who::Referee(*r, String::new())));
@@ -780,13 +801,11 @@ pub async fn phone_score(State(store): State<Shared>, Json(s): Json<PhoneScore>)
     let mut store = store.lock().await;
     let q = PhoneQuery { c: s.c.clone(), r: s.r, k: s.k.clone(), token: None, id: None };
     let (club, who) = store.authenticate(&q)?;
-    if let Who::Sheet(own) = &who {
-        if *own != s.token {
-            return Err(forbidden());
-        }
+    if !store.in_scope(&club, &who, &s.token) {
+        return Err(forbidden());
     }
     let referee = match who {
-        Who::Admin | Who::Sheet(_) => 0,
+        Who::Admin | Who::Sheet(_) | Who::Contest(_) => 0,
         Who::Referee(r, _) => r,
     };
     if s.values.is_none() && s.officiating.is_none() && s.relay.is_none() { return Err(bad_request("score ou arbitrage attendu")); }
@@ -841,7 +860,8 @@ pub async fn phone_result(State(store): State<Shared>, Query(q): Query<PhoneQuer
     let relay = store.relays.entry(club.id.clone()).or_default();
     let s = relay.submissions.iter().find(|s| s.id == id).ok_or_else(|| bad_request("saisie inconnue"))?;
     if let Who::Referee(reference, _) = who { if s.referee != reference { return Err(forbidden()); } }
-    if let Who::Sheet(own) = who { if s.token != own { return Err(forbidden()); } }
+    if let Who::Sheet(own) = &who { if s.token != *own { return Err(forbidden()); } }
+    if let Who::Contest(_) = who { return Err(forbidden()); }
     Ok(Json(match &s.result {
         None => json!({ "status": "pending" }),
         Some(Ok(())) => json!({ "status": "ok" }),
@@ -1032,4 +1052,28 @@ pub async fn open_sheets(
         return Err(crate::api::not_found());
     }
     Ok(Json(json!({ "sheets": sheets })))
+}
+
+/// `GET /api/contests/{id}/open-qr` : QR code unique d'une compétition de
+/// la version web. N'importe quel téléphone qui le scanne arbitre toute la
+/// compétition, du début à la fin, sans PIN : chaque poule et chaque match
+/// apparaît dès qu'il se débloque (compétitions de club).
+///
+/// Réponse : `{ url, svg }` (`?svg=false` : l'adresse seule).
+pub async fn open_qr(
+    State(store): State<Shared>,
+    client: Client,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(q): Query<OpenSheetsQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let mut store = store.lock().await;
+    if !store.list(&client).any(|(cid, _)| *cid == id) {
+        return Err(crate::api::not_found());
+    }
+    let admin = store.smartpoule_admin_key(&client);
+    let key = open_key(&admin, &format!("{CONTEST_SCOPE}{id}"));
+    let url = format!("{}?c={}&r=0&k={}", arbitre_base(&headers), enc(&client.id), enc(&key));
+    let svg = if q.svg.unwrap_or(true) { Value::String(qr_svg(&url)) } else { Value::Null };
+    Ok(Json(json!({ "url": url, "svg": svg })))
 }

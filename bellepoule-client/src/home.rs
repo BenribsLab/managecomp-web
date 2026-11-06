@@ -29,12 +29,24 @@ pub fn Home() -> impl IntoView {
                 <h1>"Compétitions"</h1>
                 <p class="muted">
                     {move || match contests.get() {
-                        Some(Ok(list)) => match list.len() {
+                        Some(Ok(list)) => match list.iter().filter(|c| !c.hidden).count() {
                             0 => "Aucune compétition pour l'instant".to_string(),
                             1 => "1 compétition".to_string(),
                             n => format!("{n} compétitions"),
                         },
                         _ => String::new(),
+                    }}
+                    {move || {
+                        let retired = match contests.get() {
+                            Some(Ok(list)) => list.iter().filter(|c| c.hidden).count(),
+                            _ => 0,
+                        };
+                        (retired > 0 && !show_hidden.get()).then(|| view! {
+                            " · "
+                            <a href="#" on:click=move |ev| { ev.prevent_default(); show_hidden.set(true); }>
+                                {format!("{retired} retirée{} de l'accueil", if retired > 1 { "s" } else { "" })}
+                            </a>
+                        })
                     }}
                 </p>
             </div>

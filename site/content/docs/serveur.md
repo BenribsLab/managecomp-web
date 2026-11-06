@@ -73,7 +73,9 @@ curl https://api.managecomp.org/api/contests/<compétition>/open-sheets \
 
 Réponse : `{ "sheets": [ { "token", "kind" (pool, match, lobby), "name", "competition", "piste", "time", "over", "fencers", "url", "svg" } ] }`. `url` est l'adresse à mettre dans le QR code, `svg` le QR code déjà dessiné. Paramètres : `?token=<jeton>` pour une seule feuille, `?svg=false` pour les adresses seules.
 
-Ces QR codes ne figurent pas sur les feuilles imprimées : réservez-les aux compétitions de club, puisque quiconque les voit peut saisir les scores de la feuille.
+**QR code unique de la compétition** : `GET /api/contests/<compétition>/open-qr` renvoie `{ "url", "svg" }` (`?svg=false` : l'adresse seule). Le téléphone qui le scanne arbitre toute la compétition, du début à la fin, sans PIN : chaque poule et chaque match apparaît dès qu'il se débloque (liste mise à jour toutes les 15 s).
+
+Ces QR codes ne figurent pas sur les feuilles imprimées : réservez-les aux compétitions de club, puisque quiconque les voit peut saisir les scores.
 
 ## Mises à jour
 
