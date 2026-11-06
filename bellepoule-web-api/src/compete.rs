@@ -1042,8 +1042,17 @@ pub async fn club_rankings(State(store): State<Shared>, headers: HeaderMap) -> R
     html(layout(&base, "Classement club — ManageComp", false, body))
 }
 
-/// Classements d'un club : par série (circuits) et classement général.
+/// Classement général d'un club (première page), avec les onglets des groupes.
 pub async fn club_ranking(State(store): State<Shared>, headers: HeaderMap, Path(club): Path<String>) -> Response {
+    club_ranking_page(store, headers, club, None).await
+}
+
+/// Classement d'un groupe (série, circuit) du club, seul.
+pub async fn club_ranking_group(State(store): State<Shared>, headers: HeaderMap, Path((club, group)): Path<(String, String)>) -> Response {
+    club_ranking_page(store, headers, club, Some(group)).await
+}
+
+async fn club_ranking_page(store: Shared, headers: HeaderMap, club: String, group: Option<String>) -> Response {
     use bp_core::season::{self, SeasonContest, SeasonRow};
     let base = public_base(&headers);
     let (client, publication, all, config, urls, has_contests) = {
@@ -1062,33 +1071,52 @@ pub async fn club_ranking(State(store): State<Shared>, headers: HeaderMap, Path(
     };
     let short = publication.names == "short";
 
-    // Classements : les séries (circuits) du club, puis le classement général.
-    let mut rankings: Vec<(String, String, Vec<SeasonContest>, Vec<SeasonRow>, Option<u32>)> = Vec::new();
+    // Classement général d'abord (circuit général du club, sinon toutes les
+    // compétitions), puis un classement par groupe (circuits simples, ou
+    // catégories s'il n'y a pas de circuit), chacun sur sa page.
     let chosen = |id: &str| publication.circuits.is_empty() || publication.circuits.iter().any(|c| c == id);
-    for c in config.circuits.iter().filter(|c| chosen(&c.id)) {
+    let mut rankings: Vec<(String, String, Vec<SeasonContest>, Vec<SeasonRow>, Option<u32>)> = Vec::new();
+    match config.circuits.iter().find(|c| c.is_general() && chosen(&c.id)) {
+        Some(g) => {
+            let (contests, rows) = config.ranking(&all, &g.id);
+            rankings.push((String::new(), g.name.clone(), contests, rows, g.best));
+        }
+        None => rankings.push((String::new(), "Classement général".into(), all.clone(), season::ranking(&all, &config.overrides), None)),
+    }
+    let simple: Vec<_> = config.circuits.iter().filter(|c| !c.is_general()).collect();
+    for c in simple.iter().filter(|c| chosen(&c.id)) {
         let (contests, rows) = config.ranking(&all, &c.id);
         if !contests.is_empty() {
             rankings.push((c.id.clone(), c.name.clone(), contests, rows, c.best));
         }
     }
-    if publication.circuits.is_empty() {
-        if config.circuits.is_empty() {
-            for category in season::distinct(&all, |c| &c.category) {
-                let contests: Vec<SeasonContest> = all.iter().filter(|c| c.category == category).cloned().collect();
-                let rows = season::ranking(&contests, &config.overrides);
-                rankings.push((format!("cat-{}", category.to_lowercase()), category.clone(), contests, rows, None));
-            }
-        }
-        if !config.circuits.iter().any(|c| c.is_general()) && rankings.len() != 1 && !all.is_empty() {
-            let rows = season::ranking(&all, &config.overrides);
-            rankings.push(("general".into(), "Classement général".into(), all.clone(), rows, None));
+    if simple.is_empty() {
+        for category in season::distinct(&all, |c| &c.category) {
+            let contests: Vec<SeasonContest> = all.iter().filter(|c| c.category == category).cloned().collect();
+            let rows = season::ranking(&contests, &config.overrides);
+            rankings.push((format!("cat-{}", category.to_lowercase()), category.clone(), contests, rows, None));
         }
     }
+    let selected = group.unwrap_or_default();
+    if !rankings.iter().any(|r| r.0 == selected) {
+        return not_found();
+    }
 
-    let tabs: String = rankings.iter().map(|(id, name, ..)| format!("<a href=\"#{}\">{}</a>", esc(id), esc(name))).collect();
+    let tabs: String = if rankings.len() > 1 {
+        rankings
+            .iter()
+            .map(|(id, name, ..)| {
+                let href = if id.is_empty() { format!("{base}{CLUB_RANKING}/{}", esc(&club)) } else { format!("{base}{CLUB_RANKING}/{}/{}", esc(&club), esc(id)) };
+                format!("<a href=\"{href}\"{}>{}</a>", if *id == selected { " class=\"active\"" } else { "" }, esc(name))
+            })
+            .collect()
+    } else {
+        String::new()
+    };
     let sections: String = rankings
         .iter()
-        .map(|(id, name, contests, rows, best)| {
+        .filter(|r| r.0 == selected)
+        .map(|(_, name, contests, rows, best)| {
             let lines: String = rows
                 .iter()
                 .map(|r| {
@@ -1125,9 +1153,8 @@ pub async fn club_ranking(State(store): State<Shared>, headers: HeaderMap, Path(
             };
             let note = best.map(|n| format!("<p class=\"muted\">Seuls les {n} meilleurs résultats de chaque tireur comptent.</p>")).unwrap_or_default();
             format!(
-                "<section class=\"ranking\" id=\"{}\"><h2>{}</h2>{note}\
+                "<section class=\"ranking\"><h2>{}</h2>{note}\
                  <div class=\"scroll\"><table class=\"list\"><thead><tr><th>Rang</th><th>Tireur</th><th class=\"res\">Compét.</th><th class=\"res\">Points</th></tr></thead><tbody>{lines}</tbody></table></div>{used}</section>",
-                esc(id),
                 esc(name),
             )
         })

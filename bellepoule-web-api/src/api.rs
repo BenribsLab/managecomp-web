@@ -46,6 +46,7 @@ pub fn router(store: Shared) -> Router {
         .route("/compete/e/{id}", get(compete::short))
         .route("/compete/classement-club", get(compete::club_rankings))
         .route("/compete/classement-club/{club}", get(compete::club_ranking))
+        .route("/compete/classement-club/{club}/{group}", get(compete::club_ranking_group))
         .route("/compete/{club}", get(compete::club))
         .route("/compete/{club}/{slug}", get(compete::event))
         // Compétitions ouvertes (onglets) : ce sont elles qui sont organisées.
