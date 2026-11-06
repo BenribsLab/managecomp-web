@@ -61,7 +61,7 @@ fn identity(players: &PlayerStore, r: PlayerRef) -> (String, String) {
     players
         .get(r)
         .map(|p| {
-            let name = format!("{} {}", p.name(), p.str_attr("first_name").unwrap_or_default()).trim().to_string();
+            let name = format!("{} {}", p.str_attr("first_name").unwrap_or_default(), p.name()).trim().to_string();
             let club = p.str_attr("club").unwrap_or_default().to_string();
             (name, club)
         })
@@ -304,7 +304,7 @@ impl Contest {
                                 "fencers": m.opponents.iter().flatten().map(|f| json!({
                                     "reference": f.player,
                                     "position": f.position,
-                                    "name": format!("{} {}", f.identity.name, f.identity.first_name).trim().to_string(),
+                                    "name": format!("{} {}", f.identity.first_name, f.identity.name).trim().to_string(),
                                     "club": f.identity.club,
                                     "score": f.score,
                                     "members": self.team_members(f.player),
@@ -331,7 +331,7 @@ impl Contest {
                         "fencers": sheet.rows.iter().map(|r| json!({
                             "reference": r.player,
                             "position": r.position,
-                            "name": format!("{} {}", r.identity.name, r.identity.first_name).trim().to_string(),
+                            "name": format!("{} {}", r.identity.first_name, r.identity.name).trim().to_string(),
                             "club": r.identity.club,
                             "cells": r.cells.iter().map(|c| if c.grey { Value::Null } else { json!(c.text) }).collect::<Vec<_>>(),
                             "victories": r.dashboard.as_ref().map(|d| d.victories.clone()),

@@ -506,15 +506,19 @@ fn SheetScreen(who: Who, token: String) -> impl IntoView {
     }
 }
 
-/// Nom court pour la grille : « DUPONT J. » (nom en capitales, initiale du
-/// prénom), pour que la poule tienne dans la largeur du téléphone.
+/// Nom court pour la grille : « Jean D. » (prénom, initiale du nom en
+/// capitales), pour que la poule tienne dans la largeur du téléphone.
 fn short_name(full: &str) -> String {
     let words: Vec<&str> = full.split_whitespace().collect();
     let is_last = |w: &&str| w.chars().any(char::is_alphabetic) && !w.chars().any(char::is_lowercase);
-    let last: Vec<&str> = words.iter().copied().take_while(is_last).collect();
-    let (last, rest) = if last.is_empty() { (words.iter().take(1).copied().collect::<Vec<_>>(), &words[words.len().min(1)..]) } else { (last.clone(), &words[last.len()..]) };
+    let first: Vec<&str> = words.iter().copied().take_while(|w| !is_last(w)).collect();
+    let (first, rest) = if first.is_empty() || first.len() == words.len() {
+        (words.iter().take(1).copied().collect::<Vec<_>>(), &words[words.len().min(1)..])
+    } else {
+        (first.clone(), &words[first.len()..])
+    };
     let initial = rest.first().and_then(|w| w.chars().next()).map(|c| format!(" {c}.")).unwrap_or_default();
-    format!("{}{initial}", last.join(" "))
+    format!("{}{initial}", first.join(" "))
 }
 
 /// Feuille de poule du téléphone : tient dans la largeur jusqu'à 9 tireurs
