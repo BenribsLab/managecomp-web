@@ -23,7 +23,7 @@ use crate::public::{public_base, PublicEvent, Publication};
 const CSS: &str = include_str!("compete/style.css");
 const JS: &str = include_str!("compete/app.js");
 /// Version des fichiers statiques (adresse changée à chaque modification).
-const ASSETS: &str = "5";
+const ASSETS: &str = "6";
 
 fn esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
@@ -82,6 +82,16 @@ impl Names {
     fn get(&self, players: &PlayerStore, r: PlayerRef) -> (String, String) {
         players.get(r).map(|p| (self.of(p), p.str_attr("club").unwrap_or_default().trim().to_string())).unwrap_or_default()
     }
+}
+
+/// Équipe : ses tireurs, sous le nom de l'équipe (vide pour un tireur).
+fn members(players: &PlayerStore, r: PlayerRef, names: &Names) -> String {
+    let Some(team) = players.get(r) else { return String::new() };
+    let list: Vec<String> = team.members.iter().filter_map(|m| players.get(*m)).map(|p| names.of(p)).filter(|n| !n.is_empty()).collect();
+    if list.is_empty() {
+        return String::new();
+    }
+    format!("<small class=\"members\">{}</small>", esc(&list.join(", ")))
 }
 
 /// Attributs de filtrage d'un tireur (nom affiché, club).
@@ -665,17 +675,20 @@ fn split_lines(c: &Contest, split: &bp_core::rounds::splitting::Splitting, stage
 /// Tireurs présents.
 fn fencers(c: &Contest, names: &Names) -> String {
     let Some(ch) = c.schedule.checkin() else { return String::new() };
-    let mut list: Vec<(String, String)> = ch
+    let mut list: Vec<(String, String, String)> = ch
         .fencers(&c.players)
         .into_iter()
         .filter(|r| c.players.get(*r).is_some_and(|p| p.attending()))
-        .map(|r| names.get(&c.players, r))
+        .map(|r| {
+            let (n, club) = names.get(&c.players, r);
+            (n, club, members(&c.players, r, names))
+        })
         .collect();
     if list.is_empty() {
         return String::new();
     }
-    list.sort_by_key(|(n, _)| n.to_uppercase());
-    let rows: String = list.iter().map(|(n, club)| format!("<tr{}><td class=\"name\">{}</td><td class=\"muted\">{}</td></tr>", data(n, club), esc(n), esc(club))).collect();
+    list.sort_by_key(|(n, _, _)| n.to_uppercase());
+    let rows: String = list.iter().map(|(n, club, m)| format!("<tr{}><td class=\"name\">{}{m}</td><td class=\"muted\">{}</td></tr>", data(n, club), esc(n), esc(club))).collect();
     format!("<p class=\"muted\">{} présents</p><table class=\"list\"><tbody>{rows}</tbody></table>", list.len())
 }
 
@@ -987,7 +1000,8 @@ fn ranking(c: &mut Contest, names: &Names) -> String {
         let rank = rank_col.and_then(|i| row.cells.get(i)).cloned().unwrap_or_default();
         let club = club_col.and_then(|i| row.cells.get(i)).cloned().unwrap_or(club);
         let points = points_col.and_then(|i| row.cells.get(i)).map(|p| format!("<td class=\"res\">{}</td>", esc(p))).unwrap_or_default();
-        rows.push_str(&format!("<tr{}><td class=\"rank\">{}</td><td class=\"name\">{}</td><td class=\"muted\">{}</td>{points}</tr>", data(&name, &club), esc(&rank), esc(&name), esc(&club)));
+        let team = members(&c.players, row.reference, names);
+        rows.push_str(&format!("<tr{}><td class=\"rank\">{}</td><td class=\"name\">{}{team}</td><td class=\"muted\">{}</td>{points}</tr>", data(&name, &club), esc(&rank), esc(&name), esc(&club)));
     }
     let points_head = if points_col.is_some() { "<th>Points</th>" } else { "" };
     format!("<table class=\"list\"><thead><tr><th>Pl</th><th>Tireur</th><th>Club</th>{points_head}</tr></thead><tbody>{rows}</tbody></table>")
