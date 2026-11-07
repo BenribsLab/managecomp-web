@@ -23,7 +23,7 @@ use crate::public::{public_base, PublicEvent, Publication};
 const CSS: &str = include_str!("compete/style.css");
 const JS: &str = include_str!("compete/app.js");
 /// Version des fichiers statiques (adresse changée à chaque modification).
-const ASSETS: &str = "7";
+const ASSETS: &str = "8";
 
 fn esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
@@ -70,17 +70,41 @@ impl Names {
     fn of(&self, p: &Player) -> String {
         let (name, first) = (p.name().trim().to_string(), p.first_name().trim().to_string());
         if first.is_empty() {
+            // Équipe (ou nom seul) : tel que saisi.
             return name;
         }
-        if self.short {
-            let initial = name.chars().next().map(|c| format!(" {c}.")).unwrap_or_default();
-            format!("{first}{initial}")
-        } else {
-            format!("{name} {first}")
-        }
+        person(&name, &first, self.short)
     }
     fn get(&self, players: &PlayerStore, r: PlayerRef) -> (String, String) {
         players.get(r).map(|p| (self.of(p), p.str_attr("club").unwrap_or_default().trim().to_string())).unwrap_or_default()
+    }
+}
+
+/// Une majuscule au début de chaque mot (après une espace, un trait d'union
+/// ou une apostrophe), le reste en minuscules : « DE LA TOUR » → « De La Tour ».
+fn capitalize(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut start = true;
+    for c in text.trim().chars() {
+        if start {
+            out.extend(c.to_uppercase());
+        } else {
+            out.extend(c.to_lowercase());
+        }
+        start = matches!(c, ' ' | '-' | '\'' | '’');
+    }
+    out
+}
+
+/// Nom d'une personne, même présentation partout : « Nom Prénom », ou
+/// « Prénom N. » en noms abrégés.
+fn person(name: &str, first: &str, short: bool) -> String {
+    let (name, first) = (capitalize(name), capitalize(first));
+    if short {
+        let initial = name.chars().next().map(|c| format!(" {c}.")).unwrap_or_default();
+        format!("{first}{initial}")
+    } else {
+        format!("{name} {first}").trim().to_string()
     }
 }
 
@@ -716,7 +740,7 @@ fn pools(c: &Contest, names: &Names) -> String {
             let n = sheet.rows.len();
             let piste = pool.piste_label().unwrap_or_default();
             let time = pool.start_time_image().unwrap_or_default();
-            let referee = sheet.referee.as_ref().map(|(n, f)| format!("{n} {}", f.clone().unwrap_or_default()).trim().to_string()).unwrap_or_default();
+            let referee = sheet.referee.as_ref().map(|(n, f)| person(n, &f.clone().unwrap_or_default(), false)).unwrap_or_default();
             let info = [
                 (!piste.is_empty()).then(|| format!("Piste {piste}")),
                 (!time.is_empty()).then(|| time.clone()),
@@ -856,7 +880,7 @@ fn lobbies(c: &Contest, names: &Names) -> String {
             let ranking = l.lobby_ranking(k);
             let road = l.roadmap(k).cloned().unwrap_or_default();
             let piste = road.pistes.iter().map(|p| format!("{p:02}")).collect::<Vec<_>>().join(", ");
-            let referees: Vec<String> = road.referees.iter().filter_map(|r| c.referees.store().get(*r)).map(|p| format!("{} {}", p.name(), p.first_name()).trim().to_string()).collect();
+            let referees: Vec<String> = road.referees.iter().filter_map(|r| c.referees.store().get(*r)).map(|p| person(&p.name(), &p.first_name(), false)).collect();
             let info = [
                 (!piste.is_empty()).then(|| format!("Piste {piste}")),
                 (!road.time.is_empty()).then(|| road.time.clone()),
@@ -1140,12 +1164,7 @@ async fn club_ranking_page(store: Shared, headers: HeaderMap, club: String, grou
             let lines: String = rows
                 .iter()
                 .map(|r| {
-                    let shown = if short {
-                        let initial = r.last_name.chars().next().map(|c| format!(" {c}.")).unwrap_or_default();
-                        format!("{}{initial}", r.first_name)
-                    } else {
-                        format!("{} {}", r.first_name, r.last_name).trim().to_string()
-                    };
+                    let shown = person(&r.last_name, &r.first_name, short);
                     format!(
                         "<tr data-s=\"{}\"><td class=\"rank\">{}</td><td class=\"name\">{}</td><td class=\"res\">{}</td><td class=\"res\"><b>{}</b></td></tr>",
                         esc(&shown.to_lowercase()),
