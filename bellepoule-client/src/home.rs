@@ -22,6 +22,7 @@ pub fn Home() -> impl IntoView {
 
     let search = RwSignal::new(String::new());
     let show_hidden = RwSignal::new(false);
+    let show_pages = RwSignal::new(false);
 
     view! {
         <header class="page-head">
@@ -81,13 +82,17 @@ pub fn Home() -> impl IntoView {
                 view! {
                     {(hidden && list.is_empty()).then(|| view! { <p class="muted">"Aucune compétition retirée."</p> })}
                     <ContestCards list=list on_change=reload />
-                    {(retired > 0 || hidden).then(|| view! {
-                        <div class="row hidden-toggle">
+                    <div class="row hidden-toggle">
+                        {(retired > 0 || hidden).then(|| view! {
                             <button class="ghost small" on:click=move |_| show_hidden.update(|h| *h = !*h)>
                                 {if hidden { "‹ Retour aux compétitions".to_string() } else { format!("Compétitions retirées de l'accueil ({retired})") }}
                             </button>
-                        </div>
-                    })}
+                        })}
+                        <button class="ghost small" on:click=move |_| show_pages.update(|v| *v = !*v)>"Pages publiques du club"</button>
+                    </div>
+                    <Show when=move || show_pages.get()>
+                        <PublicPages />
+                    </Show>
                 }.into_any()
             }
         }}
@@ -105,6 +110,77 @@ pub fn Home() -> impl IntoView {
                 None => view! { <p class="muted">"Chargement…"</p> }.into_any(),
             }}
         </Show>
+    }
+}
+
+/// Pages publiques du club (compete.<domaine>), y compris celles dont la
+/// compétition a été supprimée : chacune peut être retirée.
+#[component]
+fn PublicPages() -> impl IntoView {
+    let version = RwSignal::new(0u32);
+    let data = LocalResource::new(move || {
+        version.get();
+        api::get::<serde_json::Value>("/api/publications")
+    });
+    let remove = move |path: String, label: String| {
+        if !confirm(&format!("Retirer « {label} » du site public ?")) {
+            return;
+        }
+        spawn_local(async move {
+            if let Err(e) = api::delete(&path).await {
+                alert(&e.message);
+            }
+            version.update(|v| *v += 1);
+        });
+    };
+    let text = |v: &serde_json::Value, k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    view! {
+        <section class="public-pages">
+            <h2>"Pages publiques du club"</h2>
+            {move || match data.get() {
+                None => view! { <p class="muted">"Chargement…"</p> }.into_any(),
+                Some(Err(e)) => view! { <p class="error">{e.message}</p> }.into_any(),
+                Some(Ok(d)) => {
+                    let events: Vec<serde_json::Value> = d.get("events").and_then(|x| x.as_array()).cloned().unwrap_or_default();
+                    let pubs: Vec<serde_json::Value> = d.get("publications").and_then(|x| x.as_array()).cloned().unwrap_or_default();
+                    if events.is_empty() && pubs.is_empty() {
+                        return view! { <p class="muted">"Aucune page publique."</p> }.into_any();
+                    }
+                    view! {
+                        <table class="public-list">
+                            <tbody>
+                                {events.into_iter().map(|e| {
+                                    let (id, name) = (text(&e, "id"), text(&e, "name"));
+                                    let count = e.get("count").and_then(|x| x.as_u64()).unwrap_or(0);
+                                    let label = name.clone();
+                                    view! {
+                                        <tr>
+                                            <td><a href=text(&e, "url") target="_blank">{name}</a><br /><span class="muted small">{format!("Événement · {} · {count} épreuve(s)", text(&e, "date"))}</span></td>
+                                            <td class="right"><button class="ghost small danger" on:click=move |_| remove(format!("/api/publication/event/{id}"), label.clone())>"Retirer"</button></td>
+                                        </tr>
+                                    }
+                                }).collect_view()}
+                                {pubs.into_iter().map(|p| {
+                                    let (id, title) = (text(&p, "id"), text(&p, "title"));
+                                    let orphan = !p.get("linked").and_then(|x| x.as_bool()).unwrap_or(false);
+                                    let label = title.clone();
+                                    view! {
+                                        <tr>
+                                            <td>
+                                                <a href=text(&p, "url") target="_blank">{title}</a><br />
+                                                <span class="muted small">{format!("{} · {}", text(&p, "date"), text(&p, "subtitle"))}</span>
+                                                {orphan.then(|| view! { <span class="muted small">" · compétition supprimée ou du logiciel de bureau"</span> })}
+                                            </td>
+                                            <td class="right"><button class="ghost small danger" on:click=move |_| remove(format!("/api/publication/{id}"), label.clone())>"Retirer"</button></td>
+                                        </tr>
+                                    }
+                                }).collect_view()}
+                            </tbody>
+                        </table>
+                    }.into_any()
+                }
+            }}
+        </section>
     }
 }
 

@@ -220,7 +220,7 @@ impl Store {
         self.public_events.as_mut().unwrap()
     }
 
-    fn save_events(&mut self) -> std::io::Result<()> {
+    pub(crate) fn save_events(&mut self) -> std::io::Result<()> {
         let dir = self.public_dir();
         std::fs::create_dir_all(&dir)?;
         let data = serde_json::to_vec_pretty(self.public_events())?;
@@ -615,4 +615,60 @@ pub async fn unpublish_desktop(State(store): State<Shared>, client: Client, head
         return Err(not_found());
     }
     Ok((StatusCode::OK, Json(status(&mut store, &headers, None))))
+}
+
+// ------------------------------------------------- publications du club
+
+/// `GET /api/publications` : pages publiques du club (épreuves et
+/// événements), y compris celles dont la compétition n'existe plus.
+pub async fn list_publications(State(store): State<Shared>, client: Client, headers: HeaderMap) -> Json<Value> {
+    let mut store = store.lock().await;
+    let base = public_base(&headers);
+    // Épreuves encore liées à une compétition de la version web.
+    let linked: Vec<String> = store.list(&client).filter_map(|(_, c)| c.public_id.clone()).collect();
+    let mut publications: Vec<Publication> = store.publications().iter().filter(|p| p.club == client.id).cloned().collect();
+    publications.sort_by(|a, b| b.date.cmp(&a.date).then(a.title.cmp(&b.title)));
+    let mut events: Vec<PublicEvent> = store.public_events().iter().filter(|e| e.club == client.id).cloned().collect();
+    events.sort_by(|a, b| b.date.cmp(&a.date));
+    Json(json!({
+        "publications": publications.iter().map(|p| json!({
+            "id": p.id,
+            "title": p.title,
+            "subtitle": p.subtitle,
+            "date": p.date,
+            "url": format!("{base}{}/{}", p.club_slug, p.slug),
+            "event": p.event,
+            "club_contest": p.club_contest,
+            "linked": linked.contains(&p.id),
+        })).collect::<Vec<_>>(),
+        "events": events.iter().map(|e| {
+            let mut v = event_json(&base, e);
+            v["date"] = json!(e.date);
+            v["count"] = json!(publications.iter().filter(|p| p.event == e.id).count());
+            v
+        }).collect::<Vec<_>>(),
+    }))
+}
+
+/// `DELETE /api/publication/event/{id}` : retire un événement et toutes ses épreuves.
+pub async fn unpublish_event(State(store): State<Shared>, client: Client, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
+    let mut store = store.lock().await;
+    if !store.public_events().iter().any(|e| e.id == id && e.club == client.id) {
+        return Err(not_found());
+    }
+    let ids: Vec<String> = store.publications().iter().filter(|p| p.event == id && p.club == client.id).map(|p| p.id.clone()).collect();
+    for pid in &ids {
+        store.unpublish(&client, pid).map_err(internal)?;
+    }
+    // Compétitions encore ouvertes : plus liées à ces pages.
+    let contests: Vec<String> = store.list(&client).filter(|(_, c)| c.public_id.as_ref().is_some_and(|p| ids.contains(p)) || c.public_event.as_deref() == Some(id.as_str())).map(|(cid, _)| cid.clone()).collect();
+    for cid in contests {
+        store.update(&client, &cid, |c| {
+            c.public_id = None;
+            c.public_event = None;
+        });
+    }
+    store.public_events().retain(|e| !(e.id == id && e.club == client.id));
+    store.save_events().map_err(internal)?;
+    Ok(StatusCode::NO_CONTENT)
 }

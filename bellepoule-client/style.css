@@ -887,3 +887,9 @@ tr.qualified td:first-child { box-shadow: inset 4px 0 0 var(--success, #16a34a);
 /* Circuits du classement de saison */
 .check-row { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; }
 .circuit-contests { display: flex; flex-direction: column; gap: 0.2rem; max-height: 14rem; overflow: auto; }
+
+/* Pages publiques du club (accueil) */
+.public-pages { margin-top: 1rem; }
+.public-list { width: 100%; border-collapse: collapse; }
+.public-list td { padding: 0.45rem 0.4rem; border-bottom: 1px solid var(--border, #dce5f4); vertical-align: middle; }
+.public-list td.right { text-align: right; white-space: nowrap; }

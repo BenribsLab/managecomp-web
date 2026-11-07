@@ -57,6 +57,8 @@ pub fn router(store: Shared) -> Router {
         // Publication par le logiciel de bureau (clé d'API du club)
         .route("/api/publication", put(public::publish_desktop))
         .route("/api/publication/event", put(public::event_desktop))
+        .route("/api/publication/event/{id}", delete(public::unpublish_event))
+        .route("/api/publications", get(public::list_publications))
         .route("/api/publication/{id}", get(public::get_desktop).delete(public::unpublish_desktop))
         .route("/api/contests/{id}/properties", get(contests::get_properties).put(contests::set_properties))
         .route("/api/contests/{id}/cotcot", get(contests::download))

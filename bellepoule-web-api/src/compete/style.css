@@ -88,6 +88,10 @@ table { border-collapse: collapse; }
 .grid th:nth-child(2) { width: 1.6em; }
 .grid td.name { text-align: left; padding-left: 6px; text-overflow: ellipsis; line-height: 1.1; }
 .grid td.name small { overflow: hidden; text-overflow: ellipsis; }
+/* Équipes : leurs tireurs sous le nom, sur plusieurs lignes si besoin */
+small.members { white-space: normal; line-height: 1.2; }
+.grid td.name:has(.members) { height: auto; padding-top: 3px; padding-bottom: 3px; }
+.bracket .cell small.members { white-space: nowrap; }
 .grid td.pos { color: var(--muted); font-size: 0.85em; }
 .grid td.grey { background: var(--grey); }
 .grid td.win { color: var(--win); font-weight: 800; }

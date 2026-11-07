@@ -23,7 +23,7 @@ use crate::public::{public_base, PublicEvent, Publication};
 const CSS: &str = include_str!("compete/style.css");
 const JS: &str = include_str!("compete/app.js");
 /// Version des fichiers statiques (adresse changée à chaque modification).
-const ASSETS: &str = "6";
+const ASSETS: &str = "7";
 
 fn esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
@@ -92,6 +92,12 @@ fn members(players: &PlayerStore, r: PlayerRef, names: &Names) -> String {
         return String::new();
     }
     format!("<small class=\"members\">{}</small>", esc(&list.join(", ")))
+}
+
+/// Ligne sous le nom : club, puis les tireurs d'une équipe.
+fn sub(players: &PlayerStore, r: PlayerRef, names: &Names, club: &str) -> String {
+    let club = if club.is_empty() { String::new() } else { format!("<small>{}</small>", esc(club)) };
+    format!("{club}{}", members(players, r, names))
 }
 
 /// Attributs de filtrage d'un tireur (nom affiché, club).
@@ -735,10 +741,10 @@ fn pools(c: &Contest, names: &Names) -> String {
                 let d = row.dashboard.as_ref();
                 let dash = |f: fn(&bp_core::rounds::pool::pool::Dashboard) -> &String| d.map(|d| esc(f(d))).unwrap_or_default();
                 rows.push_str(&format!(
-                    "<tr{}><td class=\"name\">{}<small>{}</small></td><td class=\"pos\">{}</td>{cells}<td class=\"res\">{}</td><td class=\"res\">{}</td><td class=\"res\"><b>{}</b></td></tr>",
+                    "<tr{}><td class=\"name\">{}{}</td><td class=\"pos\">{}</td>{cells}<td class=\"res\">{}</td><td class=\"res\">{}</td><td class=\"res\"><b>{}</b></td></tr>",
                     data(&name, &club),
                     esc(&name),
-                    esc(&club),
+                    sub(&c.players, row.player, names, &club),
                     row.position,
                     dash(|d| &d.victories),
                     dash(|d| &d.indice),
@@ -786,10 +792,10 @@ fn table_lists(c: &Contest, names: &Names) -> String {
                         let (name, club) = names.get(&c.players, f);
                         let score = if m.is_over() || m.score(f).is_some_and(|s| !s.image(m.max_score).is_empty()) { m.score_at(k).image(m.max_score) } else { String::new() };
                         lines.push_str(&format!(
-                            "<div class=\"line{}\"><span class=\"who\">{}<small>{}</small></span><span class=\"score\">{}</span></div>",
+                            "<div class=\"line{}\"><span class=\"who\">{}{}</span><span class=\"score\">{}</span></div>",
                             if winner == Some(f) { " won" } else { "" },
                             esc(&name),
-                            esc(&club),
+                            sub(&c.players, f, names, &club),
                             esc(&score)
                         ));
                         keys.push(name);
@@ -873,10 +879,10 @@ fn lobbies(c: &Contest, names: &Names) -> String {
                     })
                     .collect();
                 rows.push_str(&format!(
-                    "<tr{}><td class=\"name\">{}<small>{}</small></td>{cells}<td class=\"res\"><b>{}</b></td><td class=\"res\"><b>{}</b></td></tr>",
+                    "<tr{}><td class=\"name\">{}{}</td>{cells}<td class=\"res\"><b>{}</b></td><td class=\"res\"><b>{}</b></td></tr>",
                     data(&name, &club),
                     esc(&name),
-                    esc(&club),
+                    sub(&c.players, *r, names, &club),
                     standing.points,
                     if standing.races > 0 { place.to_string() } else { String::new() },
                 ));
@@ -901,7 +907,7 @@ fn lobbies(c: &Contest, names: &Names) -> String {
                 rows.push_str(&format!(
                     "<tr{}><td class=\"rank\">{place}</td><td class=\"name\">{}</td><td class=\"muted\">{}</td><td class=\"res\">{}</td></tr>",
                     data(&name, &club),
-                    esc(&name),
+                    format!("{}{}", esc(&name), self::members(&c.players, r, names)),
                     esc(&club),
                     s.points
                 ));
@@ -944,7 +950,7 @@ fn bracket(c: &Contest, set: &bp_core::rounds::table::table_set::TableSet, names
                 data(&name, &club),
                 pos(&cell.bounds),
                 esc(&name),
-                if cell.compact || club.is_empty() { String::new() } else { format!("<small>{}</small>", esc(&club)) }
+                if cell.compact { String::new() } else { cell.winner.map(|w| sub(&c.players, w, names, &club)).unwrap_or_default() }
             ));
         }
         if let Some(score) = cell.score.as_ref().filter(|s| s.visible && s.fencer.is_some() && !s.text.is_empty()) {

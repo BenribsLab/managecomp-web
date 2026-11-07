@@ -268,12 +268,14 @@ impl Store {
     }
 
     pub fn remove(&mut self, client: &Client, id: &str) -> std::io::Result<bool> {
-        if self.contests.remove(&(client.id.clone(), id.to_string())).is_none() {
-            return Ok(false);
-        }
+        let Some(contest) = self.contests.remove(&(client.id.clone(), id.to_string())) else { return Ok(false) };
         let path = self.path(client, id);
         if path.exists() {
             std::fs::remove_file(path)?;
+        }
+        // Compétition supprimée : sa page publique aussi (et son événement s'il est vide).
+        if let Some(public_id) = contest.public_id.as_deref() {
+            self.unpublish(client, public_id)?;
         }
         Ok(true)
     }
